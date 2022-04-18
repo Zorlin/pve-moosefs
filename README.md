@@ -13,3 +13,5 @@ MooseFS on Proxmox. Experimental, may never work, etc.
 ## Credits
 
 * https://github.com/mityarzn/pve-storage-custom-mpnetapp - Initial plugin skeleton, packaging
+* https://forums.servethehome.com/index.php?threads/custom-storage-plugins-for-proxmox.12558/ - Also used building the skeleton
+* Proxmox GlusterFS and CephFS plugins - Also used in building the skeleton
