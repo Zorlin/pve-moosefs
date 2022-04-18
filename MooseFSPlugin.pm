@@ -19,7 +19,7 @@ sub moosefs_is_mounted {
 # Configuration
 
 sub api {
-    return 9;
+    return 10;
 }
 
 sub type {
