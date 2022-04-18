@@ -21,7 +21,6 @@ sub moosefs_is_mounted {
 
     return $mountpoint if grep {
         $_->[2] eq 'fuse.moosefs' &&
-        $_->[0] =~ /^\S+:\Q$volume\E$/ &&
         $_->[1] eq $mountpoint
     } @$mountdata;
     return undef;
