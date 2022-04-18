@@ -1,0 +1,9 @@
+Package: libpve-storage-custom-moosefs-perl
+Version: @@VERSION@@-@@PKGRELEASE@@
+Section: perl
+Priority: optional
+Architecture: @@ARCH@@
+Depends: libpve-storage-perl (>= 4.0-58), moosefs-client | moosefs-pro-client
+Maintainer: Benjamin Arntzen <zorlin@gmail.com>
+Description: Proxmox VE plugin for MooseFS.
+ This package contains a storage plugin to use MooseFS with Proxmox VE.
