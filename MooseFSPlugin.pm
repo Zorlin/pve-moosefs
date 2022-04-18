@@ -97,7 +97,7 @@ sub activate_storage {
 
     my $path = $scfg->{path};
 
-    if (!moosefsfs_is_mounted($path, $cache->{mountdata})) {
+    if (!moosefs_is_mounted($path, $cache->{mountdata})) {
         
         mkpath $path if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
 
