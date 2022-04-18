@@ -58,6 +58,7 @@ sub plugindata {
 
 sub properties {
     return {
+    mfsmaster => { optional => 1 },
     }
 }
 
@@ -66,7 +67,6 @@ sub options {
     path => { fixed => 1 },
     subdir => { optional => 1 },
     disable => { optional => 1 },
-    mfsmaster => { optional => 1 },
     };
 }
 
@@ -104,7 +104,7 @@ sub activate_storage {
         die "unable to activate storage '$storeid' - " .
             "directory '$path' does not exist\n" if ! -d $path;
 
-        moosefs_mount($mfsmaster, $path);
+        moosefs_mount("mfsmaster", $path);
     }
 
     $class->SUPER::activate_storage($storeid, $scfg, $cache);
