@@ -46,3 +46,5 @@ sub options {
     disable => { optional => 1 },
     };
 }
+
+1;
