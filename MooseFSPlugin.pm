@@ -21,7 +21,7 @@ sub moosefs_is_mounted {
     # on a fuse filesystem with the correct mountpoint
     return $mountpoint if grep {
         $_->[2] eq 'fuse' &&
-        $_->[0] eq =~ /^mfs#\Q$mfsmaster\E\Q:\E\Q$mfsport\E$/ &&
+        $_->[0] =~ /^mfs#\Q$mfsmaster\E\Q:\E\Q$mfsport\E$/ &&
         $_->[1] eq $mountpoint
     } @$mountdata;
     return undef;
