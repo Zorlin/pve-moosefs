@@ -78,6 +78,10 @@ sub status {
 
     my $path = $scfg->{path};
 
+    my $mfsmaster = $scfg->{mfsmaster};
+
+    my $mfsport = $scfg->{mfsport} ? $scfg->{mfsport} : '9421';
+
     return undef if !moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata});
 
     return $class->SUPER::status($storeid, $scfg, $cache);
