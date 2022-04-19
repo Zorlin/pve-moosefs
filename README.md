@@ -1,6 +1,9 @@
 # pve-moosefs
 MooseFS on Proxmox. Experimental, may never work, etc.
 
+## DISCLAIMER
+This DOES NOT WORK or do ANYTHING USEFUL yet. It's only interesting to Proxmox developers. You've been warned.
+
 ## Resources
 
 * https://github.com/mityarzn/pve-storage-custom-mpnetapp
