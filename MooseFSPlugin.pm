@@ -17,10 +17,11 @@ sub moosefs_is_mounted {
 
     $mountdata = PVE::ProcFSTools::parse_proc_mounts() if !$mountdata;
 
-    die "$mountdata";
-
+    # Check that we return something like mfs#10.1.1.201:9421
+    # on a fuse filesystem with the correct mountpoint
     return $mountpoint if grep {
-        $_->[2] eq 'fuse.moosefs' &&
+        $_->[2] eq 'fuse' &&
+        $_->[0] eq =~ /^mfs#\Q$mfsmaster\E\Q:\E\Q$mfsport\E$/ &&
         $_->[1] eq $mountpoint
     } @$mountdata;
     return undef;
@@ -29,11 +30,7 @@ sub moosefs_is_mounted {
 sub moosefs_mount {
     my ($mfsmaster, $mountpoint) = @_;
 
-    my $cmd = ['/usr/bin/mfsmount', $mountpoint];
-
-    if ($mfsmaster) {
-        my $cmd = ['/usr/bin/mfsmount', $mfsmaster, $mountpoint];
-    }
+    my $cmd = ['/usr/bin/mfsmount', $mfsmaster, $mountpoint];
 
     run_command($cmd, errmsg => "mount error");
 }
@@ -58,7 +55,8 @@ sub plugindata {
 
 sub properties {
     return {
-    mfsmaster => { optional => 1 },
+    mfsmaster => { fixed => 1 },
+    mfsport => { optional => 1 },
     }
 }
 
