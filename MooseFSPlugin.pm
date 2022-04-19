@@ -4,9 +4,11 @@ use strict;
 use warnings;
 
 use IO::File;
+use File::Path;
 
 use PVE::Storage::Plugin;
 use PVE::Tools qw(run_command);
+use PVE::ProcFSTools;
 
 use base qw(PVE::Storage::Plugin);
 
