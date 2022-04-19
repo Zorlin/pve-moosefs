@@ -32,7 +32,7 @@ sub moosefs_is_mounted {
 sub moosefs_mount {
     my ($mfsmaster, $mountpoint) = @_;
 
-    my $cmd = ['/usr/bin/mfsmount', $mfsmaster, $mountpoint];
+    my $cmd = ['/usr/bin/mfsmount', '-H', $mfsmaster, $mountpoint];
 
     run_command($cmd, errmsg => "mount error");
 }
