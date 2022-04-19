@@ -55,9 +55,15 @@ sub plugindata {
 
 sub properties {
     return {
-    mfsmaster => { fixed => 1 },
-    mfsport => { optional => 1 },
-    }
+        mfsmaster => { 
+            description => "MooseFS master to use for connection.",
+            type => 'string',
+        },
+        mfsport => { 
+            description => "Port with which to connect to the MooseFS master",
+            type => 'string',
+        },
+    };
 }
 
 sub options {
@@ -90,7 +96,7 @@ sub status {
 
 sub activate_storage {
     my ($class, $storeid, $scfg, $cache) = @_;
-    
+
     $cache->{mountdata} = PVE::ProcFSTools::parse_proc_mounts()
         if !$cache->{mountdata};
 
