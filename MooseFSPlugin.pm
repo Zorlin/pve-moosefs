@@ -90,16 +90,17 @@ sub status {
 
 sub activate_storage {
     my ($class, $storeid, $scfg, $cache) = @_;
-
-    # Get MooseFS master definition from config, otherwise return mfsmaster
-    my $mfsmaster = $scfg->{mfsmaster} ? $scfg->{mfsmaster} : 'mfsmaster';
-
+    
     $cache->{mountdata} = PVE::ProcFSTools::parse_proc_mounts()
         if !$cache->{mountdata};
 
     my $path = $scfg->{path};
 
-    if (!moosefs_is_mounted($path, $cache->{mountdata})) {
+    my $mfsmaster = $scfg->{mfsmaster};
+
+    my $mfsport = $scfg->{mfsport} ? $scfg->{mfsport} : '9421';
+
+    if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
         
         mkpath $path if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
 
@@ -119,7 +120,10 @@ sub deactivate_storage {
         if !$cache->{mountdata};
 
     my $path = $scfg->{path};
-    my $volume = $scfg->{volume};
+
+    my $mfsmaster = $scfg->{mfsmaster};
+
+    my $mfsport = $scfg->{mfsport} ? $scfg->{mfsport} : '9421';
 
     if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
         my $cmd = ['/bin/umount', $path];
