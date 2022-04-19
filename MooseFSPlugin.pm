@@ -13,7 +13,7 @@ use base qw(PVE::Storage::Plugin);
 # MooseFS helper functions
 
 sub moosefs_is_mounted {
-    my ($mountpoint, $mountdata) = @_;
+    my ($mfsmaster, $mfsport, $mountpoint, $mountdata) = @_;
 
     $mountdata = PVE::ProcFSTools::parse_proc_mounts() if !$mountdata;
 
@@ -78,7 +78,7 @@ sub status {
 
     my $path = $scfg->{path};
 
-    return undef if !moosefs_is_mounted($path, $cache->{mountdata});
+    return undef if !moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata});
 
     return $class->SUPER::status($storeid, $scfg, $cache);
 }
@@ -117,7 +117,7 @@ sub deactivate_storage {
     my $path = $scfg->{path};
     my $volume = $scfg->{volume};
 
-    if (moosefs_is_mounted($path, $cache->{mountdata})) {
+    if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
         my $cmd = ['/bin/umount', $path];
         run_command($cmd, errmsg => 'umount error');
     }
