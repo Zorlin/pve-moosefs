@@ -20,6 +20,7 @@ In this example, we create a custom storage called "moosefs-vm-storage" using th
 
 You can apply the following optional settings:
 * --mfsmaster mfsmaster.my.hostname - Set the mfsmaster IP or hostname to help MooseFS find the metadata server(s).
+* --mfspassword mypasswordhere - If your MooseFS exports require a password to mount MooseFS, set this.
 * --mfsport 9421 - If you're running the mfsmaster on a custom port, you can set this. Note: Doesn't currently do anything 🚧
 
 ## Future features
