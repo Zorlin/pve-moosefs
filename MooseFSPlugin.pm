@@ -121,6 +121,8 @@ sub activate_storage {
 
     my $mfsport = $scfg->{mfsport} ? $scfg->{mfsport} : '9421';
 
+    my $mfspassword = $scfg->{mfspassword};
+
     if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
         
         mkpath $path if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
@@ -128,7 +130,7 @@ sub activate_storage {
         die "unable to activate storage '$storeid' - " .
             "directory '$path' does not exist\n" if ! -d $path;
 
-        moosefs_mount($mfsmaster, $path);
+        moosefs_mount($mfsmaster, $path, $mfspassword);
     }
 
     $class->SUPER::activate_storage($storeid, $scfg, $cache);
