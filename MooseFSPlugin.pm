@@ -30,9 +30,14 @@ sub moosefs_is_mounted {
 }
 
 sub moosefs_mount {
-    my ($mfsmaster, $mountpoint) = @_;
+    my ($mfsmaster, $mountpoint, $mfspassword) = @_;
 
-    my $cmd = ['/usr/bin/mfsmount', '-H', $mfsmaster, $mountpoint];
+    my $cmd;
+    if (defined $mfspassword) {
+        $cmd = ['/usr/bin/mfsmount', '-o', 'mfspassword='.$mfspassword, '-H', $mfsmaster, $mountpoint];
+    } else {
+        $cmd = ['/usr/bin/mfsmount', '-H', $mfsmaster, $mountpoint];
+    }
 
     run_command($cmd, errmsg => "mount error");
 }
@@ -65,6 +70,10 @@ sub properties {
             description => "Port with which to connect to the MooseFS master",
             type => 'string',
         },
+        mfspassword => {
+            description => "Password with which to connect to the MooseFS master",
+            type => 'string',
+        }
     };
 }
 
@@ -73,6 +82,7 @@ sub options {
     path => { fixed => 1 },
     mfsmaster => { optional => 1 },
     mfsport => { optional => 1 },
+    mfspassword => { optional => 1 },
     subdir => { optional => 1 },
     disable => { optional => 1 },
     };
