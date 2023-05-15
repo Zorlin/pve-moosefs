@@ -71,6 +71,8 @@ sub properties {
 sub options {
     return {
     path => { fixed => 1 },
+    mfsmaster => { optional => 1 },
+    mfsport => { optional => 1 },
     subdir => { optional => 1 },
     disable => { optional => 1 },
     };
@@ -86,7 +88,8 @@ sub status {
 
     my $path = $scfg->{path};
 
-    my $mfsmaster = $scfg->{mfsmaster};
+    # If $scfg->{mfsmaster} is not defined, use a default value
+    my $mfsmaster = $scfg->{mfsmaster} ? $scfg->{mfsmaster} : 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} ? $scfg->{mfsport} : '9421';
 
