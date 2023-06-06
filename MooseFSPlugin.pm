@@ -80,7 +80,6 @@ sub properties {
 sub options {
     return {
     path => { fixed => 1 },
-    shared => { fixed => 1 },
     mfsmaster => { optional => 1 },
     mfsport => { optional => 1 },
     mfspassword => { optional => 1 },
