@@ -57,6 +57,7 @@ sub plugindata {
         content => [ { images => 1, vztmpl => 1, iso => 1, backup => 1, snippets => 1},
                     { images => 1 } ],
         format => [ { raw => 1, qcow2 => 1, vmdk => 1 } , 'raw' ],
+        shared => 1,
     };
 }
 
