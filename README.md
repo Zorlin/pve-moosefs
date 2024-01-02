@@ -29,6 +29,11 @@ You can apply the following optional settings:
 * mfssubfolder support
 
 ## Credits
+Huge thanks to the following contributors:
+* @anwright - Major fixes, snapshots, general cleanup
+* @pkonopelko - General advice
+
+Thanks to the following sources for code contributions:
 * https://github.com/mityarzn/pve-storage-custom-mpnetapp - Initial plugin skeleton, packaging
 * https://forums.servethehome.com/index.php?threads/custom-storage-plugins-for-proxmox.12558/ - Also used building the skeleton
 * Proxmox GlusterFS and CephFS plugins - Also used in building the skeleton
