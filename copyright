@@ -1,6 +1,8 @@
-Copyright (C) 2022 Benjamin Arntzen <zorlin@gmail.com>
+Copyright (C) Benjamin Arntzen <zorlin@gmail.com>
 
-This software is written by Benjamin Arntzen <zorlin@gmail.com> and Aaron Wright <anw@outlook.com>
+This software is maintained by Benjamin Arntzen <zorlin@gmail.com>
+and consists of work contributed by themselves and others.
+A complete list can be found in README.md.
 Based on plugin for NetApp by Dmitry Petuhov <mityapetuhov@gmail.com>
 Based on plugin for cluster-mode NFS by Alexandre Derumier <aderumier@odiso.com>
 
