@@ -30,7 +30,7 @@ sub moosefs_is_mounted {
 sub moosefs_mount {
     my ($scfg) = @_;
 
-    my $mfsmaster = $scfg->{mfsmaster};
+    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfspassword = $scfg->{mfspassword};
 
@@ -68,9 +68,9 @@ sub moosefs_unmount {
 
     my $path = $scfg->{path};
 
-    my $mfsmaster = $scfg->{mfsmaster};
+    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
-    my $mfsport = $scfg->{mfsport} ? $scfg->{mfsport} : '9421';
+    my $mfsport = $scfg->{mfsport} // '9421';
 
     if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $mountdata)) {
         my $cmd = ['/bin/umount', $path];
@@ -252,10 +252,9 @@ sub status {
 
     my $path = $scfg->{path};
 
-    # If $scfg->{mfsmaster} is not defined, use a default value
-    my $mfsmaster = $scfg->{mfsmaster} ? $scfg->{mfsmaster} : 'mfsmaster';
+    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
-    my $mfsport = $scfg->{mfsport} ? $scfg->{mfsport} : '9421';
+    my $mfsport = $scfg->{mfsport} // '9421';
 
     return undef if !moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata});
 
@@ -270,9 +269,9 @@ sub activate_storage {
 
     my $path = $scfg->{path};
 
-    my $mfsmaster = $scfg->{mfsmaster};
+    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
-    my $mfsport = $scfg->{mfsport} ? $scfg->{mfsport} : '9421';
+    my $mfsport = $scfg->{mfsport} // '9421';
 
     if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
         
