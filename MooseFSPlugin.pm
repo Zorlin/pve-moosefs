@@ -2,20 +2,30 @@ package PVE::Storage::Custom::MooseFSPlugin;
 
 use strict;
 use warnings;
-
 use IO::File;
 use File::Path;
-
 use PVE::Storage::Plugin;
 use PVE::Tools qw(run_command);
 use PVE::ProcFSTools;
 
 use base qw(PVE::Storage::Plugin);
 
+# Configuration constants
+use constant {
+    DEFAULT_MASTER => 'mfsmaster',
+    DEFAULT_PORT => '9421',
+    MOUNT_RETRIES => 3,
+    MOUNT_TIMEOUT => 30,
+};
+
 # MooseFS helper functions
 sub moosefs_is_mounted {
-    my ($mfsmaster, $mfsport, $mountpoint, $mountdata) = @_;
+    my ($scfg, $mountdata) = @_;
     $mountdata = PVE::ProcFSTools::parse_proc_mounts() if !$mountdata;
+
+    my $mfsmaster = $scfg->{mfsmaster} // DEFAULT_MASTER;
+    my $mfsport = $scfg->{mfsport} // DEFAULT_PORT;
+    my $mountpoint = $scfg->{path};
 
     # Check that we return something like mfs#10.1.1.201:9421
     # on a fuse filesystem with the correct mountpoint
@@ -29,52 +39,61 @@ sub moosefs_is_mounted {
 
 sub moosefs_mount {
     my ($scfg) = @_;
+    my $retry_count = 0;
 
-    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
+    while ($retry_count < MOUNT_RETRIES) {
+        eval {
+            my $cmd = ['/usr/bin/mfsmount'];
 
-    my $mfspassword = $scfg->{mfspassword};
+            # Build mount options
+            my %mount_opts = (
+                mfsmaster => $scfg->{mfsmaster} // DEFAULT_MASTER,
+                mfsport => $scfg->{mfsport} // DEFAULT_PORT,
+            );
 
-    my $mfsport = $scfg->{mfsport};
+            # Optional parameters
+            $mount_opts{mfspassword} = $scfg->{mfspassword} if defined $scfg->{mfspassword};
+            $mount_opts{mfssubfolder} = $scfg->{mfssubfolder} if defined $scfg->{mfssubfolder};
 
-    my $mfssubfolder = $scfg->{mfssubfolder};
+            # Add all options to command
+            for my $key (keys %mount_opts) {
+                push @$cmd, '-o', "$key=$mount_opts{$key}";
+            }
 
-    my $cmd = ['/usr/bin/mfsmount'];
+            push @$cmd, $scfg->{path};
 
-    if (defined $mfsmaster) {
-        push @$cmd, '-o', "mfsmaster=$mfsmaster";
+            run_command($cmd, timeout => MOUNT_TIMEOUT, errmsg => "mount error");
+
+            # Verify mount
+            die "Mount verification failed - path not mounted"
+                unless moosefs_is_mounted($scfg);
+
+            return 1;
+        };
+        if ($@) {
+            my $error = $@;
+            $retry_count++;
+
+            if ($retry_count >= MOUNT_RETRIES) {
+                die "Failed to mount after $retry_count attempts: $error";
+            }
+
+            sleep(2 ** $retry_count); # Exponential backoff
+        }
     }
-
-    if (defined $mfsport) {
-        push @$cmd, '-o', "mfsport=$mfsport";
-    }
-
-    if (defined $mfspassword) {
-        push @$cmd, '-o', "mfspassword=$mfspassword";
-    }
-
-    if (defined $mfssubfolder) {
-        push @$cmd, '-o', "mfssubfolder=$mfssubfolder";
-    }
-
-    push @$cmd, $scfg->{path};
-
-    run_command($cmd, errmsg => "mount error");
 }
 
 sub moosefs_unmount {
     my ($scfg) = @_;
 
-    my $mountdata = PVE::ProcFSTools::parse_proc_mounts();
-
-    my $path = $scfg->{path};
-
-    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
-
-    my $mfsport = $scfg->{mfsport} // '9421';
-
-    if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $mountdata)) {
-        my $cmd = ['/bin/umount', $path];
-        run_command($cmd, errmsg => 'umount error');
+    if (moosefs_is_mounted($scfg)) {
+        my $cmd = ['/bin/umount', $scfg->{path}];
+        eval {
+            run_command($cmd, timeout => MOUNT_TIMEOUT, errmsg => 'umount error');
+        };
+        if ($@) {
+            die "Failed to unmount $scfg->{path}: $@";
+        }
     }
 }
 
@@ -97,13 +116,15 @@ sub plugindata {
 
 sub properties {
     return {
-        mfsmaster => { 
+        mfsmaster => {
             description => "MooseFS master to use for connection (default 'mfsmaster').",
             type => 'string',
         },
-        mfsport => { 
+        mfsport => {
             description => "Port with which to connect to the MooseFS master (default 9421)",
-            type => 'string',
+            type => 'integer',
+            minimum => 1,
+            maximum => 65535,
         },
         mfspassword => {
             description => "Password with which to connect to the MooseFS master (default none)",
@@ -127,6 +148,13 @@ sub options {
         shared => { optional => 1 },
         content => { optional => 1 },
     };
+}
+
+# Helper function for snapshot paths
+sub get_snapshot_path {
+    my ($scfg, $vmid, $snap, $name) = @_;
+    my $base_path = "$scfg->{path}/images/$vmid";
+    return defined $snap ? "$base_path/snaps/$snap/$name" : "$base_path/$name";
 }
 
 sub volume_has_feature {
@@ -155,19 +183,12 @@ sub volume_has_feature {
         },
     };
 
-    my ($vtype, $name, $vmid, $basename, $basevmid, $isBase, $format) = $class->parse_volname($volname);
+    my ($vtype, $name, $vmid, $basename, $basevmid, $isBase, $format) =
+        $class->parse_volname($volname);
 
-    my $key = undef;
-    if ($snapname) {
-        $key = 'snap';
-    } else {
-        $key =  $isBase ? 'base' : 'current';
-    }
+    my $key = $snapname ? 'snap' : ($isBase ? 'base' : 'current');
 
-    if (defined($features->{$feature}->{$key}->{$format})) {
-        return 1;
-    }
-    return undef;
+    return defined($features->{$feature}->{$key}->{$format});
 }
 
 sub parse_name_dir {
@@ -183,7 +204,8 @@ sub parse_volname {
 sub volume_snapshot {
     my ($class, $scfg, $storeid, $volname, $snap) = @_;
 
-    my ($storageType, $name, $vmid, $basename, $basedvmid, $isBase, $format) = $class->parse_volname($volname);
+    my ($storageType, $name, $vmid, $basename, $basedvmid, $isBase, $format) =
+        $class->parse_volname($volname);
 
     if ($format ne 'raw') {
         return PVE::Storage::Plugin::volume_snapshot(@_);
@@ -191,17 +213,18 @@ sub volume_snapshot {
 
     die "snapshots not supported for this storage type" if $storageType ne 'images';
 
-    my $mountpoint = $scfg->{path};
+    my $snapdir = get_snapshot_path($scfg, $vmid, $snap, '');
+    my $source = get_snapshot_path($scfg, $vmid, undef, $name);
+    my $target = get_snapshot_path($scfg, $vmid, $snap, $name);
 
-    my $snapdir = "$mountpoint/images/$vmid/snaps/$snap";
-
-    File::Path::make_path($snapdir);
-
-    print "running '/usr/bin/mfsmakesnapshot $mountpoint/images/$vmid/$name $snapdir/$name'\n";
-
-    my $cmd = ['/usr/bin/mfsmakesnapshot', "$mountpoint/images/$vmid/$name", "$snapdir/$name"];
-
-    run_command($cmd, errmsg => 'An error occurred while making the snapshot');
+    eval {
+        File::Path::make_path($snapdir);
+        my $cmd = ['/usr/bin/mfsmakesnapshot', $source, $target];
+        run_command($cmd, timeout => MOUNT_TIMEOUT, errmsg => 'Failed to create snapshot');
+    };
+    if ($@) {
+        die "Error creating snapshot: $@";
+    }
 
     return undef;
 }
@@ -209,17 +232,22 @@ sub volume_snapshot {
 sub volume_snapshot_delete {
     my ($class, $scfg, $storeid, $volname, $snap, $running) = @_;
 
-    my ($storageType, $name, $vmid, $basename, $basedvmid, $isBase, $format) = $class->parse_volname($volname);
+    my ($storageType, $name, $vmid, $basename, $basedvmid, $isBase, $format) =
+        $class->parse_volname($volname);
 
     if ($format ne 'raw') {
         return PVE::Storage::Plugin::volume_snapshot_delete(@_);
     }
 
-    my $mountpoint = $scfg->{path};
+    my $snapshot_path = get_snapshot_path($scfg, $vmid, $snap, $basename);
 
-    my $cmd = ['/usr/bin/rm', '-rf', "$mountpoint/images/$vmid/snaps/$snap/$basename"];
-
-    run_command($cmd, errmsg => 'An error occurred while deleting the snapshot');
+    eval {
+        my $cmd = ['/usr/bin/rm', '-rf', $snapshot_path];
+        run_command($cmd, timeout => MOUNT_TIMEOUT, errmsg => 'Failed to delete snapshot');
+    };
+    if ($@) {
+        die "Error deleting snapshot: $@";
+    }
 
     return undef;
 }
@@ -227,19 +255,23 @@ sub volume_snapshot_delete {
 sub volume_snapshot_rollback {
     my ($class, $scfg, $storeid, $volname, $snap) = @_;
 
-    my ($storageType, $name, $vmid, $basename, $basedvmid, $isBase, $format) = $class->parse_volname($volname);
+    my ($storageType, $name, $vmid, $basename, $basedvmid, $isBase, $format) =
+        $class->parse_volname($volname);
 
     if ($format ne 'raw') {
         return PVE::Storage::Plugin::volume_snapshot_rollback(@_);
     }
 
-    my $mountpoint = $scfg->{path};
+    my $source = get_snapshot_path($scfg, $vmid, $snap, $name);
+    my $target = get_snapshot_path($scfg, $vmid, undef, $name);
 
-    my $snapdir = "$mountpoint/images/$vmid/snaps/$snap";
-
-    my $cmd = ['/usr/bin/mfsmakesnapshot', '-o', "$snapdir/$name", "$mountpoint/images/$vmid/$name"];
-
-    run_command($cmd, errmsg => 'An error occurred while restoring the snapshot');
+    eval {
+        my $cmd = ['/usr/bin/mfsmakesnapshot', '-o', $source, $target];
+        run_command($cmd, timeout => MOUNT_TIMEOUT, errmsg => 'Failed to rollback snapshot');
+    };
+    if ($@) {
+        die "Error rolling back snapshot: $@";
+    }
 
     return undef;
 }
@@ -250,14 +282,7 @@ sub status {
     $cache->{mountdata} = PVE::ProcFSTools::parse_proc_mounts()
         if !$cache->{mountdata};
 
-    my $path = $scfg->{path};
-
-    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
-
-    my $mfsport = $scfg->{mfsport} // '9421';
-
-    return undef if !moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata});
-
+    return undef if !moosefs_is_mounted($scfg, $cache->{mountdata});
     return $class->SUPER::status($storeid, $scfg, $cache);
 }
 
@@ -267,18 +292,11 @@ sub activate_storage {
     $cache->{mountdata} = PVE::ProcFSTools::parse_proc_mounts()
         if !$cache->{mountdata};
 
-    my $path = $scfg->{path};
-
-    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
-
-    my $mfsport = $scfg->{mfsport} // '9421';
-
-    if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
-        
-        mkpath $path if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
+    if (!moosefs_is_mounted($scfg, $cache->{mountdata})) {
+        mkpath $scfg->{path} if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
 
         die "unable to activate storage '$storeid' - " .
-            "directory '$path' does not exist\n" if ! -d $path;
+            "directory '$scfg->{path}' does not exist\n" if ! -d $scfg->{path};
 
         moosefs_mount($scfg);
     }
