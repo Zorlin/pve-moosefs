@@ -119,10 +119,14 @@ sub properties {
 sub options {
     return {
         path => { fixed => 1 },
+        'prune-backups' => { optional => 1 },
+        'max-protected-backups' => { optional => 1 },
+        maxfiles => { optional => 1 },
         mfsmaster => { optional => 1 },
         mfsport => { optional => 1 },
         mfspassword => { optional => 1 },
         mfssubfolder => { optional => 1 },
+        nodes => { optional => 1 },
         disable => { optional => 1 },
         shared => { optional => 1 },
         content => { optional => 1 },
