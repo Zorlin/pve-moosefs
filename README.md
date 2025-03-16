@@ -1,13 +1,21 @@
 # pve-moosefs
 MooseFS on Proxmox.
 
-
 ![image](https://github.com/user-attachments/assets/f70d2908-7111-4b47-bcb8-eed793a85c11)
+
+# Features
+* Natively use MooseFS storage on Proxmox.
+* Support for MooseFS clusters with passwords and subfolders
+* Live migrate VMs between Proxmox hosts with the VMs living on MooseFS storage
+* Cleanly unmounts MooseFS when removed
+* 
 
 ## DISCLAIMER
 This is **HIGHLY EXPERIMENTAL!** I'm running it in production, but you should be careful.
 
 Call it pre-alpha quality.
+
+**Do not use snapshots with your MooseFS storage, as they are actively being worked on and not ready yet**
 
 ## Usage
 Adding as storage             |  Viewing a MooseFS storage target
@@ -26,6 +34,13 @@ Harder:
 * Make the Debian package: `make`
 * Install the Debian package: `dpkg -i *.deb`
 
+### Graphical mounting
+Now mount the storage! You can use the Proxmox GUI for this.
+
+* Go to Datacenter -> Storage
+* Click Add -> MooseFS and follow the wizard.
+
+### Command line mounting
 Now mount the storage via command line:
 `pvesm add moosefs moosefs-vm-storage --path /mnt/mfs`
 
