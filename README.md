@@ -5,6 +5,9 @@ Adding as storage             |  Viewing a MooseFS storage target
 :-------------------------:|:-------------------------:
 ![image](https://github.com/user-attachments/assets/0a6fc0cb-46c5-4cd6-a2b6-f6930159e2ea) |  ![image](https://github.com/Zorlin/pve-moosefs/assets/1369772/b8218b51-c6df-4524-9f7d-358d59624f9a)
 
+![image](https://github.com/user-attachments/assets/f70d2908-7111-4b47-bcb8-eed793a85c11)
+
+
 ## DISCLAIMER
 This is **HIGHLY EXPERIMENTAL!** I'm running it in production, but you should be careful.
 
