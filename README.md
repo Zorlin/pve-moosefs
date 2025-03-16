@@ -8,7 +8,10 @@ MooseFS on Proxmox.
 * Support for MooseFS clusters with passwords and subfolders
 * Live migrate VMs between Proxmox hosts with the VMs living on MooseFS storage
 * Cleanly unmounts MooseFS when removed
-* 
+
+## Future features
+* Instant snapshots and rollbacks
+* MooseFS block device (`mfsbdev`) support for high performance
 
 ## DISCLAIMER
 This is **HIGHLY EXPERIMENTAL!** I'm running it in production, but you should be careful.
@@ -51,10 +54,6 @@ You can apply the following optional settings:
 * --mfspassword mypasswordhere - If your MooseFS exports require a password to mount MooseFS, set this.
 * --mfssubfolder media - If you need to use a folder within MooseFS instead of pointing at the root of the filesystem, set this.
 * --mfsport 9421 - If you're running the mfsmaster on a custom port, you can set this. Note: Currently unused 🚧
-
-## Future features
-* Instant snapshots and rollbacks
-* MooseFS block device (`mfsbdev`) support for high performance
 
 ## Credits
 Huge thanks to the following contributors:
