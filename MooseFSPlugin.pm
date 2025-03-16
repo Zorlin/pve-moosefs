@@ -305,8 +305,6 @@ sub activate_storage {
 }
 
 sub on_delete_hook {
-    log_debug("Unmounting MooseFS storage...");
-
     my ($class, $storeid, $scfg, $cache) = @_;
 
     $cache->{mountdata} = PVE::ProcFSTools::parse_proc_mounts()
