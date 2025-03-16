@@ -6,6 +6,7 @@ DESTDIR=
 PREFIX=/usr
 SBINDIR=${PREFIX}/sbin
 DOCDIR=${PREFIX}/share/doc/${PACKAGE}
+DATADIR=${PREFIX}/share/${PACKAGE}
 
 export PERLDIR=${PREFIX}/share/perl5
 
@@ -26,6 +27,9 @@ dinstall: deb
 install:
 	install -d ${DESTDIR}${PERLDIR}/PVE/Storage/Custom
 	for i in ${SOURCES}; do install -D -m 0644 $$i ${DESTDIR}${PERLDIR}/PVE/Storage/Custom/$$i; done
+	# Install the patch file
+	install -d ${DESTDIR}${DATADIR}
+	install -m 0644 pve-moosefs.patch ${DESTDIR}${DATADIR}/
 
 .PHONY: deb ${DEB}
 deb ${DEB}:
@@ -36,7 +40,9 @@ deb ${DEB}:
 	sed -e s/@@VERSION@@/${VERSION}/ -e s/@@PKGRELEASE@@/${PKGREL}/ -e s/@@ARCH@@/${ARCH}/ <control.in >debian/DEBIAN/control
 	install -D -m 0644 copyright debian/${DOCDIR}/copyright
 	install -m 0644 changelog.Debian debian/${DOCDIR}/
-	install -m 0644 triggers debian/DEBIAN
+	install -m 0644 triggers debian/DEBIAN/
+	install -m 0755 postinst debian/DEBIAN/
+	install -m 0755 prerm debian/DEBIAN/
 	gzip -9 debian/${DOCDIR}/changelog.Debian
 	dpkg-deb --build debian
 	mv debian.deb ${DEB}

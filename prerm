@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+TARGET_FILE="/usr/share/pve-manager/js/pvemanagerlib.js"
+BACKUP_FILE="$TARGET_FILE.dpkg-backup"
+
+# This script doesn't attempt to reverse the patch automatically
+# as it could lead to unintended consequences if the patched file
+# has been modified further. Instead, we'll just notify the user.
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        if [ -f "$BACKUP_FILE" ]; then
+            echo "Restoring original pvemanagerlib.js from backup"
+            cp -a "$BACKUP_FILE" "$TARGET_FILE"
+            rm -f "$BACKUP_FILE"
+            
+            # Restart the pveproxy service
+            if systemctl is-active pveproxy >/dev/null 2>&1; then
+                systemctl restart pveproxy
+            fi
+        else
+            echo "Note: No backup file found. The patch will remain applied."
+            echo "You may need to reinstall pve-manager to restore the original file"
+        fi
+        ;;
+esac
+
+exit 0 

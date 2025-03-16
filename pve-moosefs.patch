@@ -1,0 +1,112 @@
+--- pvemanagerlib.js.dpkg-backup	2025-03-16 20:11:49.582158116 +0000
++++ pvemanagerlib.js	2025-03-16 20:14:25.954644250 +0000
+@@ -2296,6 +2296,12 @@
+ 	    faIcon: 'building',
+ 	    backups: false,
+ 	},
++	moosefs: {
++	    name: 'MooseFS',
++	    ipanel: 'MooseFSInputPanel',
++	    faIcon: 'building',
++	    backups: true,
++	},
+ 	zfspool: {
+ 	    name: 'ZFS',
+ 	    ipanel: 'ZFSPoolInputPanel',
+@@ -58952,6 +58958,96 @@
+ 	},
+     ],
+ });
++Ext.define('PVE.storage.MooseFSController', {
++    extend: 'Ext.app.ViewController',
++    alias: 'controller.pve-storage-moosefs'
++});
++Ext.define('PVE.storage.MooseFSInputPanel', {
++    extend: 'PVE.panel.StorageBase',
++	controller: 'pve-storage-moosefs',
++
++    onlineHelp: 'storage_moosefs',
++
++    initComponent: function() {
++        let me = this;
++
++        me.column1 = [
++            {
++				xtype: me.isCreate ? 'textfield' : 'displayfield',
++                name: 'path',
++                value: '',
++                fieldLabel: gettext('Mount Point'),
++                allowBlank: false,
++            },
++            {
++                xtype: 'textfield',
++                name: 'mfsmaster',
++                value: 'mfsmaster',
++                fieldLabel: gettext('MooseFS Master'),
++                allowBlank: true,
++                emptyText: 'mfsmaster',
++                submitEmpty: false,
++            },
++            {
++                xtype: 'numberfield',
++                name: 'mfsport',
++                value: '9421',
++                fieldLabel: gettext('Master Port'),
++                allowBlank: true,
++                emptyText: '9421',
++                submitEmpty: false,
++                minValue: 1,
++                maxValue: 65535,
++            },
++            {
++                xtype: 'pveContentTypeSelector',
++                name: 'content',
++                value: ['images', 'iso', 'vztmpl', 'backup', 'snippets'],
++                multiSelect: true,
++                fieldLabel: gettext('Content'),
++                allowBlank: false,
++            },
++        ];
++
++        me.column2 = [
++            {
++                xtype: 'proxmoxcheckbox',
++                name: 'shared',
++                checked: true,
++                uncheckedValue: 0,
++                fieldLabel: gettext('Shared'),
++            },
++        ];
++
++        me.advancedColumn1 = [
++            {
++                xtype: 'textfield',
++                name: 'mfssubfolder',
++                fieldLabel: gettext('Subfolder'),
++                allowBlank: true,
++                submitEmpty: false,
++                emptyText: '/',
++                autoEl: {
++                    tag: 'div',
++                    'data-qtip': gettext('The subfolder to mount. Leave empty to mount the root directory.'),
++                },
++            },
++        ];
++
++        me.advancedColumn2 = [
++            {
++                xtype: 'textfield',
++                name: 'mfspassword',
++                fieldLabel: gettext('Password'),
++                allowBlank: true,
++                submitEmpty: false,
++                inputType: 'password',
++            },
++        ];
++
++        me.callParent();
++    },
++});
+ Ext.define('PVE.storage.BTRFSInputPanel', {
+     extend: 'PVE.panel.StorageBase',
+ 

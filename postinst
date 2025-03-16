@@ -1,0 +1,40 @@
+#!/bin/sh
+set -e
+
+TARGET_FILE="/usr/share/pve-manager/js/pvemanagerlib.js"
+PATCH_FILE="/usr/share/libpve-storage-custom-moosefs-perl/pve-moosefs.patch"
+
+case "$1" in
+    configure)
+        if [ -f "$TARGET_FILE" ] && ! grep -q "moosefs:" "$TARGET_FILE"; then
+            echo "Applying MooseFS patch to $TARGET_FILE"
+            
+            # Create a backup with dpkg extension (standard Debian approach)
+            cp -a "$TARGET_FILE" "$TARGET_FILE.dpkg-backup"
+            
+            # Apply the patch using patch from Debian core utilities
+            if patch -p1 "$TARGET_FILE" < "$PATCH_FILE"; then
+                echo "MooseFS patch applied successfully"
+                
+                # Register the file modification with dpkg
+                if type dpkg-trigger >/dev/null 2>&1; then
+                    dpkg-trigger --no-await update-pvemanager
+                fi
+                
+                # Restart the pveproxy service
+                if systemctl is-active pveproxy >/dev/null 2>&1; then
+                    systemctl restart pveproxy
+                fi
+            else
+                echo "Error: Failed to apply patch, restoring from backup"
+                cp "$TARGET_FILE.dpkg-backup" "$TARGET_FILE"
+            fi
+        elif [ -f "$TARGET_FILE" ]; then
+            echo "MooseFS support already present in $TARGET_FILE, skipping patch"
+        else
+            echo "Warning: Target file $TARGET_FILE not found, cannot apply patch"
+        fi
+        ;;
+esac
+
+exit 0 

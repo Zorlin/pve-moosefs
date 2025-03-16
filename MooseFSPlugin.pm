@@ -28,14 +28,16 @@ sub log_debug {
 
 # MooseFS helper functions
 sub moosefs_is_mounted {
-    my ($mfsmaster, $mfsport, $mountpoint, $mountdata) = @_;
+    my ($mfsmaster, $mfsport, $mountpoint, $mountdata, $mfssubfolder) = @_;
     $mountdata = PVE::ProcFSTools::parse_proc_mounts() if !$mountdata;
 
-    # Check that we return something like mfs#mfsmaster:9421
+    my $subfolder_pattern = defined($mfssubfolder) ? "\Q/$mfssubfolder\E" : "";
+    
+    # Check that we return something like mfs#mfsmaster:9421 or mfs#mfsmaster:9421/subfolder
     # on a fuse filesystem with the correct mountpoint
     return $mountpoint if grep {
         $_->[2] eq 'fuse' &&
-        $_->[0] =~ /^mfs(#|\\043)\Q$mfsmaster\E\Q:\E\Q$mfsport\E$/ &&
+        $_->[0] =~ /^mfs(#|\\043)\Q$mfsmaster\E\Q:\E\Q$mfsport\E$subfolder_pattern$/ &&
         $_->[1] eq $mountpoint
     } @$mountdata;
     return undef;
@@ -273,8 +275,10 @@ sub status {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
+    
+    my $mfssubfolder = $scfg->{mfssubfolder};
 
-    return undef if !moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata});
+    return undef if !moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder);
 
     return $class->SUPER::status($storeid, $scfg, $cache);
 }
@@ -290,8 +294,10 @@ sub activate_storage {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
+    
+    my $mfssubfolder = $scfg->{mfssubfolder};
 
-    if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
+    if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder)) {
         
         mkpath $path if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
 
@@ -315,8 +321,10 @@ sub on_delete_hook {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
+    
+    my $mfssubfolder = $scfg->{mfssubfolder};
 
-    if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
+    if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder)) {
         moosefs_unmount($scfg);
     }
 }
