@@ -1,7 +1,8 @@
 # pve-moosefs
 MooseFS on Proxmox.
 
-|![image](https://github.com/user-attachments/assets/f70d2908-7111-4b47-bcb8-eed793a85c11) |
+
+![image](https://github.com/user-attachments/assets/f70d2908-7111-4b47-bcb8-eed793a85c11)
 
 ## DISCLAIMER
 This is **HIGHLY EXPERIMENTAL!** I'm running it in production, but you should be careful.
