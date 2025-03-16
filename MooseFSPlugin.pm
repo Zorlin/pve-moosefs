@@ -5,6 +5,7 @@ use warnings;
 
 use IO::File;
 use File::Path;
+use POSIX qw(strftime);
 
 use PVE::Storage::Plugin;
 use PVE::Tools qw(run_command);
@@ -12,12 +13,25 @@ use PVE::ProcFSTools;
 
 use base qw(PVE::Storage::Plugin);
 
+# Logging function, called only when needed explicitly
+sub log_debug {
+    my ($msg) = @_;
+    my $logfile = '/var/log/mfsplugindebug.log';
+    my $timestamp = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
+    
+    my $cmd = ['/usr/bin/logger', '-t', 'MooseFSPlugin', '-p', 'daemon.debug', $msg];
+    run_command($cmd);
+    
+    $cmd = ['/bin/sh', '-c', "echo '$timestamp: $msg' >> $logfile"];
+    run_command($cmd, errmsg => "Failed to write to log file");
+}
+
 # MooseFS helper functions
 sub moosefs_is_mounted {
     my ($mfsmaster, $mfsport, $mountpoint, $mountdata) = @_;
     $mountdata = PVE::ProcFSTools::parse_proc_mounts() if !$mountdata;
 
-    # Check that we return something like mfs#10.1.1.201:9421
+    # Check that we return something like mfs#mfsmaster:9421
     # on a fuse filesystem with the correct mountpoint
     return $mountpoint if grep {
         $_->[2] eq 'fuse' &&
@@ -57,7 +71,7 @@ sub moosefs_mount {
     }
 
     push @$cmd, $scfg->{path};
-
+    
     run_command($cmd, errmsg => "mount error");
 }
 
@@ -72,10 +86,10 @@ sub moosefs_unmount {
 
     my $mfsport = $scfg->{mfsport} // '9421';
 
-    if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $mountdata)) {
-        my $cmd = ['/bin/umount', $path];
-        run_command($cmd, errmsg => 'umount error');
-    }
+    #if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $mountdata)) {
+    my $cmd = ['/bin/umount', $path];
+    run_command($cmd, errmsg => 'umount error');
+    #}
 }
 
 sub api {
@@ -290,9 +304,23 @@ sub activate_storage {
     $class->SUPER::activate_storage($storeid, $scfg, $cache);
 }
 
-sub deactivate_storage {
+sub on_delete_hook {
+    log_debug("Unmounting MooseFS storage...");
+
     my ($class, $storeid, $scfg, $cache) = @_;
-    moosefs_unmount($scfg);
+
+    $cache->{mountdata} = PVE::ProcFSTools::parse_proc_mounts()
+        if !$cache->{mountdata};
+
+    my $path = $scfg->{path};
+
+    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
+
+    my $mfsport = $scfg->{mfsport} // '9421';
+
+    if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata})) {
+        moosefs_unmount($scfg);
+    }
 }
 
 1;
