@@ -31,8 +31,10 @@ sub moosefs_is_mounted {
     my ($mfsmaster, $mfsport, $mountpoint, $mountdata, $mfssubfolder) = @_;
     $mountdata = PVE::ProcFSTools::parse_proc_mounts() if !$mountdata;
 
+    # Strip leading slashes from mfssubfolder
+    $mfssubfolder =~ s|^/+||;
     my $subfolder_pattern = defined($mfssubfolder) ? "\Q/$mfssubfolder\E" : "";
-    
+
     # Check that we return something like mfs#mfsmaster:9421 or mfs#mfsmaster:9421/subfolder
     # on a fuse filesystem with the correct mountpoint
     return $mountpoint if grep {
