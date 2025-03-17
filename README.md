@@ -64,3 +64,13 @@ Thanks to the following sources for code contributions:
 * https://github.com/mityarzn/pve-storage-custom-mpnetapp - Initial plugin skeleton, packaging
 * https://forums.servethehome.com/index.php?threads/custom-storage-plugins-for-proxmox.12558/ - Also used building the skeleton
 * Proxmox GlusterFS and CephFS plugins - Also used in building the skeleton
+
+## Changelog
+v0.1.0 - Initial release
+* Major features
+* Mount, unmount and setup shared MooseFS storage on your Proxmox cluster
+* Snapshots not working in this build
+
+v0.1.1 - Bug fixes
+* Add 'container' as an option in the Proxmox GUI to allow containers to be stored on MooseFS
+* Allow leading `/` on mfssubfolder

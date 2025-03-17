@@ -61,7 +61,7 @@
 +            {
 +                xtype: 'pveContentTypeSelector',
 +                name: 'content',
-+                value: ['images', 'iso', 'vztmpl', 'backup', 'snippets'],
++                value: ['images', 'iso', 'vztmpl', 'backup', 'snippets', 'rootdir'],
 +                multiSelect: true,
 +                fieldLabel: gettext('Content'),
 +                allowBlank: false,
