@@ -522,57 +522,50 @@ sub path {
 
 sub filesystem_path {
     my ($class, $scfg, $volname, $snapname) = @_;
+
     log_debug("[filesystem_path] scfg is a " . ref($scfg));
 
-    die "filesystem_path: expected scfg to be a hashref"
+    # Defensive fallback – resolve scfg from volname if it's a storeid
+    unless (ref($scfg) eq 'HASH') {
+        log_debug("[filesystem_path] scfg was not a hashref, trying to resolve from volname");
+        my ($storeid) = $volname =~ m/^([^:]+):/;
+        $scfg = PVE::Storage::config()->{ids}->{$storeid} if $storeid;
+    }
 
-    $scfg = PVE::Storage::config()->{ids}->{$storeid}
-        unless ref($scfg) eq 'HASH';
-
-    die "filesystem_path: could not resolve scfg from storeid '$storeid'"
-        unless ref($scfg) eq 'HASH';
+    die "filesystem_path: expected scfg to be a hashref" unless ref($scfg) eq 'HASH';
 
     log_debug "[fs-path] Trying to get the NBD device path for volume $volname";
 
-    # If mfsbdev not enabled, bail early
     return $class->SUPER::filesystem_path(@_) if !$scfg->{mfsbdev};
 
     my ($vtype, $name, $vmid, undef, undef, $isBase, $format) = $class->parse_volname($volname);
 
-    # Skip if not raw format or not an image
     return $class->SUPER::filesystem_path(@_) if $vtype ne 'images' || $format ne 'raw';
 
-    my $path = "/images/$vmid/$name";  
+    my $path = "/images/$vmid/$name";
 
-    # Check if MooseFS bdev is active
     if (!moosefs_bdev_is_active($scfg)) {
         log_debug "MooseFS bdev is not active, activating it";
         moosefs_start_bdev($scfg);
     }
 
-    # Run mfsbdev list to get current mappings  
-    my $cmd = ['/usr/sbin/mfsbdev', 'list'];  
-    my $output = '';  
-    eval {  
-        run_command($cmd,  
-            outfunc => sub { $output .= shift; },  
-            errmsg => 'mfsbdev list failed');  
-    };  
-    if ($@) {  
-        log_debug "[fs-path] Failed to list MooseFS block devices: $@";  
-        # Fall back to regular path if we can't get mappings  
-        return $class->SUPER::filesystem_path(@_);  
+    my $cmd = ['/usr/sbin/mfsbdev', 'list'];
+    my $output = '';
+    eval {
+        run_command($cmd,
+            outfunc => sub { $output .= shift; },
+            errmsg => 'mfsbdev list failed');
+    };
+    if ($@) {
+        log_debug "[fs-path] Failed to list MooseFS block devices: $@";
+        return $class->SUPER::filesystem_path(@_);
     }
 
-    # Parse the output to find our file  
-    # Format: file: /images/117/vm-117-disk-0 ; device: /dev/nbd0 ; ...  
-    if ($output =~ m|file:\s+\Q$path\E\s+;\s+device:\s+(/dev/nbd\d+)|) {  
+    if ($output =~ m|file:\s+\Q$path\E\s+;\s+device:\s+(/dev/nbd\d+)|) {
         my $nbd_path = $1;
-        log_debug "[fs-path] Found NBD device $nbd_path for volume $volname";  
+        log_debug "[fs-path] Found NBD device $nbd_path for volume $volname";
         return $nbd_path;
-    }
-    else {  
-        # No NBD device found, return the original filesystem path  
+    } else {
         log_debug "[fs-path] No NBD device found for volume $volname, using regular path";
         return "$scfg->{path}$path";
     }
