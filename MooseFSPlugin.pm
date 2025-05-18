@@ -333,19 +333,40 @@ sub free_image {
     return undef;
 }
 
-sub activate_volume {  
-    my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
+sub map_volume {
+    my ($class, $storeid, $scfg, $volname, $snapname) = @_;
+    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
+      
+    # Only handle image volumes
+    return $class->SUPER::activate_volume(@_) if $vtype ne 'images';  
 
-    return $class->SUPER::activate_volume(@_) if !$scfg->{mfsbdev};
+    # Construct the MooseFS path from the parsed components  
+    my $mfs_path = "/images/$vmid/$name";  
+      
+    # Check if the volume is already mapped  
+    my $list_cmd = ['/usr/sbin/mfsbdev', 'list'];  
+    my $list_output = '';  
+    eval {  
+        run_command($list_cmd, outfunc => sub { $list_output .= shift; }, errmsg => 'mfsbdev list failed');  
+    };  
+    if ($@) {  
+        log_debug "Failed to list MooseFS block devices: $@";  
+        return $class->SUPER::filesystem_path(@_);  
+    }  
+      
+    # Parse the output to find our file  
+    # Format: file: /images/117/vm-117-disk-0 ; device: /dev/nbd0 ; ...  
+    if ($list_output =~ m|file:\s+\Q$mfs_path\E\s+;\s+device:\s+(/dev/nbd\d+)|) {  
+        my $nbd_path = $1;  
+        log_debug "Found existing NBD device $nbd_path for volume $volname";
+        # If the volume is already mapped, return the NBD device path
+        return $nbd_path;  
+    }
 
     # Fetch size from the size file alongside the block device
     my $size_file = "$scfg->{path}/images/$volname.size";
     log_debug "Size file $size_file";
     my $size = -e $size_file ? do { open(my $fh, '<', $size_file) or die "Failed to open $size_file: $!"; local $/; <$fh> } : 0;
-
-    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
-    log_debug "Vtype $vtype, name $name, vmid $vmid";
-    return $class->SUPER::activate_volume(@_) if $vtype ne 'images';
 
     my $path = "/images/$vmid/$name";
 
@@ -355,12 +376,36 @@ sub activate_volume {
     
     log_debug "Activating volume $volname with size $size_bytes";
 
-    my $cmd = ['/usr/sbin/mfsbdev', 'map', '-f', $path, '-s', $size_bytes];
+    my $map_cmd = ['/usr/sbin/mfsbdev', 'map', '-f', $path, '-s', $size_bytes];
+    my $map_output = '';  
+    eval {  
+        run_command($map_cmd,  
+            outfunc => sub { $map_output .= shift; },  
+            errmsg => 'mfsbdev map failed');  
+    };  
+    if ($@) {  
+        log_debug "Failed to map MooseFS block device: $@";  
+        # Fall back to regular path if we can't get mappings  
+        return $class->SUPER::filesystem_path(@_);  
+    }
 
-    run_command($cmd, errmsg => 'mfsbdev map failed');
+    if ($map_output =~ m|->(/dev/nbd\d+)|) {  
+        my $nbd_path = $1;  
+        log_debug "Found NBD device $nbd_path for volume $volname";  
+        return $nbd_path;  
+    }
+  
+    # If we couldn't parse the output or no NBD device was found  
+    log_debug "No NBD device found in output: $map_output";  
+    return $class->SUPER::filesystem_path(@_); 
+}
 
-    # Avoid a race condition where Proxmox immediately tries to use the volume
-    log_debug "Looping until volume is active";
+sub activate_volume {  
+    my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
+
+    return $class->SUPER::activate_volume(@_) if !$scfg->{mfsbdev};
+
+    $class->map_volume($storeid, $scfg, $volname, $snapname) if $scfg->{mfsbdev};
 
     return 1;
 }
@@ -382,6 +427,25 @@ sub deactivate_volume {
     run_command($cmd, errmsg => "can't unmap MooseFS device '$path'");  
 
     return 1;
+}
+
+sub path {  
+    my ($class, $scfg, $volname, $storeid, $snapname) = @_;  
+
+    log_debug "Trying to get the NBD device path for volume $volname";     
+    # Try to get the NBD device path  
+    my $nbd_path = $class->map_volume($storeid, $scfg, $volname, $snapname);  
+      
+    # If we got an NBD device path and it exists as a block device  
+    if ($nbd_path && -b $nbd_path) {  
+        my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
+        log_debug "Using NBD path $nbd_path for volume $volname";  
+        return ($nbd_path, $vmid, $vtype);
+    }  
+
+    # Fall back to regular path  
+    log_debug "No NBD device found for volume $volname, using regular path";  
+    return $class->SUPER::path($scfg, $volname, $storeid, $snapname);  
 }
 
 sub filesystem_path {
@@ -413,7 +477,7 @@ sub filesystem_path {
         my $nbd_path = $1;
         log_debug "Found NBD device $nbd_path for volume $volname";  
         return $nbd_path;
-    }  
+    }
     else {  
         # No NBD device found, return the original filesystem path  
         log_debug "No NBD device found for volume $volname, using regular path";
