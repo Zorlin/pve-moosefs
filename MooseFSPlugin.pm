@@ -18,10 +18,10 @@ sub log_debug {
     my ($msg) = @_;
     my $logfile = '/var/log/mfsplugindebug.log';
     my $timestamp = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
-    
+
     my $cmd = ['/usr/bin/logger', '-t', 'MooseFSPlugin', '-p', 'daemon.debug', $msg];
     run_command($cmd);
-    
+
     $cmd = ['/bin/sh', '-c', "echo '$timestamp: $msg' >> $logfile"];
     run_command($cmd, errmsg => "Failed to write to log file");
 }
@@ -75,7 +75,7 @@ sub moosefs_mount {
     }
 
     push @$cmd, $scfg->{path};
-    
+
     run_command($cmd, errmsg => "mount error");
 }
 
@@ -115,11 +115,11 @@ sub plugindata {
 
 sub properties {
     return {
-        mfsmaster => { 
+        mfsmaster => {
             description => "MooseFS master to use for connection (default 'mfsmaster').",
             type => 'string',
         },
-        mfsport => { 
+        mfsport => {
             description => "Port with which to connect to the MooseFS master (default 9421)",
             type => 'string',
         },
@@ -243,6 +243,8 @@ sub free_image {
     }
 
     return undef;
+}
+
 sub volume_resize {
     my ($class, $scfg, $storeid, $volname, $size) = @_;
 
@@ -261,8 +263,6 @@ sub volume_resize {
     }
 
     return undef;
-}
-
 }
 
 sub volume_snapshot {
@@ -340,7 +340,7 @@ sub status {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
-    
+
     my $mfssubfolder = $scfg->{mfssubfolder};
 
     return undef if !moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder);
@@ -359,11 +359,11 @@ sub activate_storage {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
-    
+
     my $mfssubfolder = $scfg->{mfssubfolder};
 
     if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder)) {
-        
+
         mkpath $path if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
 
         die "unable to activate storage '$storeid' - " .
@@ -386,7 +386,7 @@ sub on_delete_hook {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
-    
+
     my $mfssubfolder = $scfg->{mfssubfolder};
 
     if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder)) {
