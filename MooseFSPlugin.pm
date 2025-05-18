@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use IO::File;
+use IO::Socket::UNIX;
 use File::Path;
 use POSIX qw(strftime);
 
@@ -45,10 +46,25 @@ sub moosefs_is_mounted {
     return undef;
 }
 
-# MooseFS Block Device functions
+# Returns true only if /dev/mfs/nbdsock exists _and_ we can open() it as a UNIX stream.
 sub moosefs_bdev_is_active {
-    # Check for presence of /dev/mfs/nbdsock
-    return -e '/dev/mfs/nbdsock';
+    log_debug "Checking if bdev is active";
+
+    my ($scfg) = @_;
+
+    my $sockpath = '/dev/mfs/nbdsock';
+
+    # Quick check: does the file exist and is it a socket?
+    return unless -e $sockpath && -S $sockpath;
+
+    # Now try to connect
+    my $sock = IO::Socket::UNIX->new(
+        Peer    => $sockpath,
+        Timeout => 0.1,                # 100ms timeout
+    );
+
+    # If we got a socket object, the daemon is listening
+    return defined($sock) ? 1 : 0;
 }
 
 sub moosefs_start_bdev {
@@ -243,7 +259,28 @@ sub parse_name_dir {
 
 sub parse_volname {
     my ($class, $volname) = @_;
-    return PVE::Storage::Plugin::parse_volname(@_);
+
+    # 1) Directory-style: "<vmid>/<name>"
+    if ($volname =~ m!^(\d+)/(.+)$!) {
+        my ($vmid, $name) = ($1, $2);
+
+        # detect format by extension
+        my $format = 'raw';
+        $format = 'qcow2' if $name =~ /\.qcow2$/;
+        $format = 'vmdk'  if $name =~ /\.vmdk$/;
+
+        return ('images', $name, $vmid, undef, undef, undef, $format);
+    }
+
+    # 2) Pure-name style: "vm-117-disk-0" or "base-117-…"
+    if ($volname =~ m!^((vm|base)-(\d+)-\S+)$!) {
+        my ($name, $is_base, $vmid) = ($1, $2 eq 'base', $3);
+
+        return ('images', $name, $vmid, undef, undef, $is_base, 'raw');
+    }
+
+    # If the base implementation couldn't parse it, throw our own error
+    die "unable to parse volume filename '$volname'\n";
 }
 
 sub alloc_image {
@@ -255,12 +292,22 @@ sub alloc_image {
 
     $name = $class->find_free_diskname($storeid, $scfg, $vmid, $fmt) if !$name;
 
-    my $imagedir = "/images/$vmid";
-    File::Path::make_path($imagedir);
+    my $imagedir = "images/$vmid";
+    File::Path::make_path($scfg->{path}."/$imagedir");
 
-    my $path = "$imagedir/$name";
+    my $path = "/$imagedir/$name";
 
-    my $cmd = ['/usr/sbin/mfsbdev', 'map', '-f', $path, '-s', $size];
+    # Write the size of the block device to a file alongside it
+    my $write_size_file = "$scfg->{path}/$imagedir/$name.size";
+
+    open(my $write_fh, '>', $write_size_file) or die "Failed to open $write_size_file: $!";
+    print $write_fh $size;
+    close $write_fh;
+
+    # Size is in kibibytes, but MooseFS expects bytes
+    my $size_bytes = $size * 1024;
+
+    my $cmd = ['/usr/sbin/mfsbdev', 'map', '-f', $path, '-s', $size_bytes];
     run_command($cmd, errmsg => 'mfsbdev map failed');
 
     return "$vmid/$name";
@@ -280,9 +327,98 @@ sub free_image {
         my $cmd = ['/usr/sbin/mfsbdev', 'unmap', $path];
         run_command($cmd, errmsg => 'mfsbdev unmap failed');
         unlink $path if -e $path;
+        unlink "$path.size" if -e "$path.size";
     }
 
     return undef;
+}
+
+sub activate_volume {  
+    my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
+
+    return $class->SUPER::activate_volume(@_) if !$scfg->{mfsbdev};
+
+    # Fetch size from the size file alongside the block device
+    my $size_file = "$scfg->{path}/images/$volname.size";
+    log_debug "Size file $size_file";
+    my $size = -e $size_file ? do { open(my $fh, '<', $size_file) or die "Failed to open $size_file: $!"; local $/; <$fh> } : 0;
+
+    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
+    log_debug "Vtype $vtype, name $name, vmid $vmid";
+    return $class->SUPER::activate_volume(@_) if $vtype ne 'images';
+
+    my $path = "/images/$vmid/$name";
+
+    # Size is in kibibytes, but MooseFS expects bytes
+    my ($safe_size) = $size =~ /^(\d+)$/; 
+    my $size_bytes = $safe_size * 1024;
+    
+    log_debug "Activating volume $volname with size $size_bytes";
+
+    my $cmd = ['/usr/sbin/mfsbdev', 'map', '-f', $path, '-s', $size_bytes];
+
+    run_command($cmd, errmsg => 'mfsbdev map failed');
+
+    # Avoid a race condition where Proxmox immediately tries to use the volume
+    log_debug "Looping until volume is active";
+
+    return 1;
+}
+
+sub deactivate_volume {  
+    my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;  
+
+    return $class->SUPER::deactivate_volume(@_) if !$scfg->{mfsbdev};  
+
+    my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
+    return $class->SUPER::deactivate_volume(@_) if $vtype ne 'images';  
+
+    my $path = "/images/$vmid/$name";  
+    
+    log_debug "Deactivating volume $volname";  
+
+    my $cmd = ['/usr/sbin/mfsbdev', 'unmap', '-f', $path];
+
+    run_command($cmd, errmsg => "can't unmap MooseFS device '$path'");  
+
+    return 1;
+}
+
+sub filesystem_path {
+    my ($class, $scfg, $volname, $snapname) = @_;
+
+    # If we're not in mfsbdev mode, return the original path
+    return $class->SUPER::filesystem_path(@_) if !$scfg->{mfsbdev};
+
+    my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
+    my $path = "/images/$vmid/$name";  
+
+    # Run mfsbdev list to get current mappings  
+    my $cmd = ['/usr/sbin/mfsbdev', 'list'];  
+    my $output = '';  
+    eval {  
+        run_command($cmd,  
+            outfunc => sub { $output .= shift; },  
+            errmsg => 'mfsbdev list failed');  
+    };  
+    if ($@) {  
+        log_debug "Failed to list MooseFS block devices: $@";  
+        # Fall back to regular path if we can't get mappings  
+        return $class->SUPER::filesystem_path(@_);  
+    }  
+
+    # Parse the output to find our file  
+    # Format: file: /images/117/vm-117-disk-0 ; device: /dev/nbd0 ; ...  
+    if ($output =~ m|file:\s+\Q$path\E\s+;\s+device:\s+(/dev/nbd\d+)|) {  
+        my $nbd_path = $1;
+        log_debug "Found NBD device $nbd_path for volume $volname";  
+        return $nbd_path;
+    }  
+    else {  
+        # No NBD device found, return the original filesystem path  
+        log_debug "No NBD device found for volume $volname, using regular path";
+        return $vmid."/".$name;
+    }
 }
 
 sub volume_resize {
