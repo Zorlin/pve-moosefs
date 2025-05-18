@@ -289,33 +289,28 @@ sub parse_volname {
 
     log_debug "[parse-volname] Parsing volume name: $volname";
 
-    # 1) Directory-style: "<vmid>/<name>"
+    my $storeid;
+    if ($volname =~ m/^([^:]+):(.+)$/) {
+        $storeid = $1;
+        $volname = $2;
+    }
+
     if ($volname =~ m!^(\d+)/(.+)$!) {
         my ($vmid, $name) = ($1, $2);
-
-        # detect format by extension
         my $format = 'raw';
         $format = 'qcow2' if $name =~ /\.qcow2$/;
         $format = 'vmdk'  if $name =~ /\.vmdk$/;
-
-        return ('images', $name, $vmid, undef, undef, undef, $format);
+        return ('images', $name, $vmid, undef, undef, undef, $format, $storeid);
     }
 
-    # 2) Pure-name style: "vm-117-disk-0" or "base-117-…" (allow .qcow2/.vmdk)
     elsif ($volname =~ m!^((vm|base)-(\d+)-\S+)$!) {
         my ($name, $is_base, $vmid) = ($1, $2 eq 'base', $3);
-
-        # detect format by extension here as well
         my $format = 'raw';
         $format = 'qcow2' if $name =~ /\.qcow2$/;
         $format = 'vmdk'  if $name =~ /\.vmdk$/;
-
-        return ('images', $name, $vmid, undef, undef, $is_base, $format);
+        return ('images', $name, $vmid, undef, undef, $is_base, $format, $storeid);
     }
 
-
-
-    # Fallback to superclass for all other content types / patterns
     return $class->SUPER::parse_volname($volname);
 }
 
@@ -501,13 +496,12 @@ sub deactivate_volume {
 sub path {  
     my ($class, $scfg, $volname, $storeid, $snapname) = @_;  
 
-    $scfg = PVE::Storage::config()->{ids}->{$storeid}
-        unless ref($scfg) eq 'HASH';
+    return $class->SUPER::path(@_) unless ref($scfg) eq 'HASH' && $scfg->{mfsbdev};
 
     log_debug "[path] Trying to get the NBD device path for volume $volname";     
     # Try to get the NBD device path  
     my $nbd_path = $class->map_volume($storeid, $scfg, $volname, $snapname);  
-      
+
     # If we got an NBD device path and it exists as a block device  
     if ($nbd_path && -b $nbd_path) {  
         my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
