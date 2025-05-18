@@ -14,6 +14,26 @@ use PVE::ProcFSTools;
 
 use base qw(PVE::Storage::Plugin);
 
+# Debugging traps, to eventually be removed
+use Carp;
+
+BEGIN {
+    $SIG{__DIE__} = sub {
+        my $msg = shift;
+        if ($msg =~ /Can't use string \(.*\) as a HASH ref/) {
+            my $ts = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
+            open my $fh, '>>', '/var/log/mfsplugindebug.log';
+            print $fh "$ts: Caught HASH ref crash: $msg\n";
+            print $fh "$ts: Stack trace:\n";
+            local $Carp::CarpLevel = 1;
+            print $fh Carp::longmess("STACK:\n");
+            close $fh;
+        }
+        die $msg;
+    };
+}
+# End debugging traps
+
 # Logging function, called only when needed explicitly
 sub log_debug {
     my ($msg) = @_;
@@ -54,6 +74,7 @@ sub moosefs_is_mounted {
 # Returns true only if /dev/mfs/nbdsock exists _and_ we can open() it as a UNIX stream.
 sub moosefs_bdev_is_active {
     my ($scfg) = @_;
+    die "Invalid config: expected hashref" unless ref($scfg) eq 'HASH';
 
     my $sockpath = '/dev/mfs/nbdsock';
 
@@ -211,7 +232,7 @@ sub options {
 }
 
 sub volume_has_feature {
-    my ($class, $scfg, $feature, $storeid, $volname, $snapname, $running) = @_;
+    my ($class, $scfg, $feature, $storeid, $volname, $snapname, $running, $opts) = @_;
     my $features = {
         snapshot => {
             current => { qcow2 => 1, raw => 1, vmdk => 1, subvol => 1 },
@@ -266,6 +287,8 @@ sub parse_name_dir {
 sub parse_volname {
     my ($class, $volname) = @_;
 
+    log_debug "[parse-volname] Parsing volume name: $volname";
+
     # 1) Directory-style: "<vmid>/<name>"
     if ($volname =~ m!^(\d+)/(.+)$!) {
         my ($vmid, $name) = ($1, $2);
@@ -297,12 +320,24 @@ sub parse_volname {
 }
 
 sub alloc_image {
-    my ($class, $storeid, $scfg, $vmid, $fmt, $name, $size) = @_;
+    my ($class, @args) = @_;
 
-    return $class->SUPER::alloc_image(@_) if !$scfg->{mfsbdev};
+    my ($storeid, $scfg, $vmid, $fmt, $name, $size);
+
+    if (ref($args[1]) eq 'HASH') {
+        # Correct signature (from other plugin code)
+        ($storeid, $scfg, $vmid, $fmt, $name, $size) = @args;
+    } else {
+        # Legacy signature (what `PVE::Storage` actually calls)
+        ($storeid, $vmid, $fmt, $name, $size) = @args;
+        $scfg = PVE::Storage::config()->{ids}->{$storeid}
+            or die "alloc_image: unable to resolve config for '$storeid'";
+    }
+
+    return $class->SUPER::alloc_image($storeid, $scfg, $vmid, $fmt, $name, $size)
+        if !$scfg->{mfsbdev};
 
     die "mfsbdev only supports raw format" if $fmt ne 'raw';
-
     $name = $class->find_free_diskname($storeid, $scfg, $vmid, $fmt) if !$name;
 
     my $imagedir = "images/$vmid";
@@ -327,7 +362,9 @@ sub alloc_image {
 }
 
 sub free_image {
-    my ($class, $storeid, $scfg, $volname, $isBase) = @_;
+    my ($class, $storeid, $scfg, $volname, $isBase, $format) = @_;
+
+    $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
 
     return $class->SUPER::free_image(@_) if !$scfg->{mfsbdev};
 
@@ -348,10 +385,10 @@ sub free_image {
 
 sub map_volume {
     my ($class, $storeid, $scfg, $volname, $snapname) = @_;
-    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
-      
-    # Only handle image volumes
-    return $class->SUPER::activate_volume(@_) if $vtype ne 'images';  
+    my ($vtype, $name, $vmid, undef, undef, $isBase, $format) = $class->parse_volname($volname);
+
+    # Only handle raw format image volumes
+    return $class->SUPER::activate_volume(@_) if $vtype ne 'images' || $format ne 'raw';
 
     # Construct the MooseFS path from the parsed components  
     my $mfs_path = "/images/$vmid/$name";  
@@ -359,7 +396,7 @@ sub map_volume {
     # Check if MooseFS bdev is active
     if (!moosefs_bdev_is_active($scfg)) {
         log_debug "MooseFS bdev is not active, activating it";
-        moosefs_bdev_start($scfg);
+        moosefs_start_bdev($scfg);
     }
 
     # Check if the volume is already mapped  
@@ -384,7 +421,7 @@ sub map_volume {
     }
 
     # Fetch size from the size file alongside the block device
-    my $size_file = "$scfg->{path}/images/$volname.size";
+    my $size_file = "$scfg->{path}/images/$vmid/$name.size";
     log_debug "Size file $size_file";
     my $size = -e $size_file ? do { open(my $fh, '<', $size_file) or die "Failed to open $size_file: $!"; local $/; <$fh> } : 0;
 
@@ -394,6 +431,9 @@ sub map_volume {
     my ($safe_size) = $size =~ /^(\d+)$/; 
     my $size_bytes = $safe_size * 1024;
     
+    # Die if size is 0
+    die "Size must be > 0 for volume $volname" if $size_bytes <= 0;
+
     log_debug "Activating volume $volname with size $size_bytes";
 
     my $map_cmd = ['/usr/sbin/mfsbdev', 'map', '-f', $path, '-s', $size_bytes];
@@ -423,6 +463,12 @@ sub map_volume {
 sub activate_volume {  
     my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
 
+    # Defensive - make sure $scfg is a hashref, not a storeid
+    $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
+
+    log_debug "[activate-volume] Activating volume $volname";
+    die "Expected hashref for \$scfg in activate_volume, got: $scfg" unless ref($scfg) eq 'HASH';
+
     return $class->SUPER::activate_volume(@_) if !$scfg->{mfsbdev};
 
     $class->map_volume($storeid, $scfg, $volname, $snapname) if $scfg->{mfsbdev};
@@ -432,6 +478,9 @@ sub activate_volume {
 
 sub deactivate_volume {  
     my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;  
+
+    # Defensive - make sure $scfg is a hashref, not a storeid
+    $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
 
     return $class->SUPER::deactivate_volume(@_) if !$scfg->{mfsbdev};  
 
@@ -452,35 +501,53 @@ sub deactivate_volume {
 sub path {  
     my ($class, $scfg, $volname, $storeid, $snapname) = @_;  
 
-    log_debug "Trying to get the NBD device path for volume $volname";     
+    $scfg = PVE::Storage::config()->{ids}->{$storeid}
+        unless ref($scfg) eq 'HASH';
+
+    log_debug "[path] Trying to get the NBD device path for volume $volname";     
     # Try to get the NBD device path  
     my $nbd_path = $class->map_volume($storeid, $scfg, $volname, $snapname);  
       
     # If we got an NBD device path and it exists as a block device  
     if ($nbd_path && -b $nbd_path) {  
         my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
-        log_debug "Using NBD path $nbd_path for volume $volname";  
+        log_debug "[path] Using NBD path $nbd_path for volume $volname";  
         return ($nbd_path, $vmid, $vtype);
     }  
 
     # Fall back to regular path  
-    log_debug "No NBD device found for volume $volname, using regular path";  
+    log_debug "[path] No NBD device found for volume $volname, using regular path";  
     return $class->SUPER::path($scfg, $volname, $storeid, $snapname);  
 }
 
 sub filesystem_path {
     my ($class, $scfg, $volname, $snapname) = @_;
+    log_debug("[filesystem_path] scfg is a " . ref($scfg));
 
-    # If we're not in mfsbdev mode, return the original path
+    die "filesystem_path: expected scfg to be a hashref"
+
+    $scfg = PVE::Storage::config()->{ids}->{$storeid}
+        unless ref($scfg) eq 'HASH';
+
+    die "filesystem_path: could not resolve scfg from storeid '$storeid'"
+        unless ref($scfg) eq 'HASH';
+
+    log_debug "[fs-path] Trying to get the NBD device path for volume $volname";
+
+    # If mfsbdev not enabled, bail early
     return $class->SUPER::filesystem_path(@_) if !$scfg->{mfsbdev};
 
-    my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
+    my ($vtype, $name, $vmid, undef, undef, $isBase, $format) = $class->parse_volname($volname);
+
+    # Skip if not raw format or not an image
+    return $class->SUPER::filesystem_path(@_) if $vtype ne 'images' || $format ne 'raw';
+
     my $path = "/images/$vmid/$name";  
 
     # Check if MooseFS bdev is active
     if (!moosefs_bdev_is_active($scfg)) {
         log_debug "MooseFS bdev is not active, activating it";
-        moosefs_bdev_start($scfg);
+        moosefs_start_bdev($scfg);
     }
 
     # Run mfsbdev list to get current mappings  
@@ -512,7 +579,10 @@ sub filesystem_path {
 }
 
 sub volume_resize {
-    my ($class, $scfg, $storeid, $volname, $size) = @_;
+    my ($class, $scfg, $storeid, $volname, $size, $running) = @_;
+
+    # Defensive - make sure $scfg is a hashref, not a storeid
+    $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
 
     return $class->SUPER::volume_resize(@_) if !$scfg->{mfsbdev};
 
@@ -638,7 +708,7 @@ sub activate_storage {
         moosefs_mount($scfg);
     }
 
-    if ($scfg->{mfsbdev} && !moosefs_bdev_is_active()) {
+    if ($scfg->{mfsbdev} && !moosefs_bdev_is_active($scfg)) {
         moosefs_start_bdev($scfg);
     }
 
