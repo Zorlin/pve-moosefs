@@ -8,10 +8,10 @@ MooseFS on Proxmox.
 * Support for MooseFS clusters with passwords and subfolders
 * Live migrate VMs between Proxmox hosts with the VMs living on MooseFS storage
 * Cleanly unmounts MooseFS when removed
+* MooseFS block device (`mfsbdev`) support for high performance
 
 ## Future features
 * Instant snapshots and rollbacks
-* MooseFS block device (`mfsbdev`) support for high performance
 
 ## DISCLAIMER
 This is **HIGHLY EXPERIMENTAL!** I'm running it in production, but you should be careful.
@@ -74,3 +74,6 @@ v0.1.0 - Initial release
 v0.1.1 - Bug fixes
 * Add 'container' as an option in the Proxmox GUI to allow containers to be stored on MooseFS
 * Allow leading `/` on mfssubfolder
+
+v0.1.2 - Features
+* Initial support for the MooseFS block device (mfsbdev)

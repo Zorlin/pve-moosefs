@@ -130,6 +130,10 @@ sub properties {
         mfssubfolder => {
             description => "Define subfolder to mount as root (default: /)",
             type => 'string',
+        },
+        mfsbdev => {
+            description => "Use mfsbdev for raw image allocation",
+            type => 'boolean',
         }
     };
 }
@@ -144,6 +148,7 @@ sub options {
         mfsport => { optional => 1 },
         mfspassword => { optional => 1 },
         mfssubfolder => { optional => 1 },
+        mfsbdev => { optional => 1 },
         nodes => { optional => 1 },
         disable => { optional => 1 },
         shared => { optional => 1 },
@@ -200,6 +205,44 @@ sub parse_name_dir {
 sub parse_volname {
     my ($class, $volname) = @_;
     return PVE::Storage::Plugin::parse_volname(@_);
+}
+
+sub alloc_image {
+    my ($class, $storeid, $scfg, $vmid, $fmt, $name, $size) = @_;
+
+    return $class->SUPER::alloc_image(@_) if !$scfg->{mfsbdev};
+
+    die "mfsbdev only supports raw format" if $fmt ne 'raw';
+
+    $name = $class->find_free_diskname($storeid, $scfg, $vmid, $fmt) if !$name;
+
+    my $imagedir = "$scfg->{path}/images/$vmid";
+    File::Path::make_path($imagedir);
+
+    my $path = "$imagedir/$name";
+    my $cmd = ['/usr/bin/mfsbdev', 'create', $path, $size];
+    run_command($cmd, errmsg => 'mfsbdev create failed');
+
+    return "$vmid/$name";
+}
+
+sub free_image {
+    my ($class, $storeid, $scfg, $volname, $isBase) = @_;
+
+    return $class->SUPER::free_image(@_) if !$scfg->{mfsbdev};
+
+    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
+    return $class->SUPER::free_image(@_) if $vtype ne 'images';
+
+    my $path = "$scfg->{path}/images/$vmid/$name";
+
+    if (-e $path) {
+        my $cmd = ['/usr/bin/mfsbdev', 'remove', $path];
+        run_command($cmd, errmsg => 'mfsbdev remove failed');
+        unlink $path if -e $path;
+    }
+
+    return undef;
 }
 
 sub volume_snapshot {
