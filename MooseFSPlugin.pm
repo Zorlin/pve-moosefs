@@ -45,6 +45,38 @@ sub moosefs_is_mounted {
     return undef;
 }
 
+# MooseFS Block Device functions
+sub moosefs_bdev_is_active {
+    # Check for presence of /dev/mfs/nbdsock
+    return -e '/dev/mfs/nbdsock';
+}
+
+sub moosefs_start_bdev {
+    my ($scfg) = @_;
+
+    my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
+
+    my $mfspassword = $scfg->{mfspassword};
+
+    my $mfsport = $scfg->{mfsport};
+
+    my $mfssubfolder = $scfg->{mfssubfolder};
+
+    my $cmd = ['/usr/sbin/mfsbdev', 'start', '-H', $mfsmaster, '-S', 'proxmox', '-p', $mfspassword];
+
+    run_command($cmd, errmsg => 'mfsbdev start failed');
+}
+
+sub moosefs_stop_bdev {
+    my ($scfg) = @_;
+
+    my $cmd = ['/usr/sbin/mfsbdev', 'stop'];
+
+    run_command($cmd, errmsg => 'mfsbdev stop failed');
+}
+
+# Mounting functions
+
 sub moosefs_mount {
     my ($scfg) = @_;
 
@@ -191,6 +223,13 @@ sub volume_has_feature {
         $key =  $isBase ? 'base' : 'current';
     }
 
+    # TODO: turn off qcow2 and vmdk support while bdev is active
+    # if ($scfg->{mfsbdev}) {
+    #     # Turn off qcow2 and vmdk support for bdev
+    #     $features->{$feature}->{$key}->{qcow2} = 0;
+    #     $features->{$feature}->{$key}->{vmdk} = 0;
+    # }
+
     if (defined($features->{$feature}->{$key}->{$format})) {
         return 1;
     }
@@ -216,11 +255,12 @@ sub alloc_image {
 
     $name = $class->find_free_diskname($storeid, $scfg, $vmid, $fmt) if !$name;
 
-    my $imagedir = "$scfg->{path}/images/$vmid";
+    my $imagedir = "/images/$vmid";
     File::Path::make_path($imagedir);
 
     my $path = "$imagedir/$name";
-    my $cmd = ['/usr/sbin/mfsbdev', 'map', $path, '-s', $size];
+
+    my $cmd = ['/usr/sbin/mfsbdev', 'map', '-f', $path, '-s', $size];
     run_command($cmd, errmsg => 'mfsbdev map failed');
 
     return "$vmid/$name";
@@ -234,7 +274,7 @@ sub free_image {
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);
     return $class->SUPER::free_image(@_) if $vtype ne 'images';
 
-    my $path = "$scfg->{path}/images/$vmid/$name";
+    my $path = "/images/$vmid/$name";
 
     if (-e $path) {
         my $cmd = ['/usr/sbin/mfsbdev', 'unmap', $path];
@@ -253,7 +293,7 @@ sub volume_resize {
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);
     return $class->SUPER::volume_resize(@_) if $vtype ne 'images';
 
-    my $path = "$scfg->{path}/images/$vmid/$name";
+    my $path = "/images/$vmid/$name";
 
     if (-e $path) {
         my $cmd = ['/usr/sbin/mfsbdev', 'resize', $path, $size];
@@ -370,6 +410,10 @@ sub activate_storage {
             "directory '$path' does not exist\n" if ! -d $path;
 
         moosefs_mount($scfg);
+    }
+
+    if ($scfg->{mfsbdev} && !moosefs_bdev_is_active()) {
+        moosefs_start_bdev($scfg);
     }
 
     $class->SUPER::activate_storage($storeid, $scfg, $cache);
