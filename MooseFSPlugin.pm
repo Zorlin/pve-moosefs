@@ -18,10 +18,10 @@ sub log_debug {
     my ($msg) = @_;
     my $logfile = '/var/log/mfsplugindebug.log';
     my $timestamp = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
-    
+
     my $cmd = ['/usr/bin/logger', '-t', 'MooseFSPlugin', '-p', 'daemon.debug', $msg];
     run_command($cmd);
-    
+
     $cmd = ['/bin/sh', '-c', "echo '$timestamp: $msg' >> $logfile"];
     run_command($cmd, errmsg => "Failed to write to log file");
 }
@@ -75,7 +75,7 @@ sub moosefs_mount {
     }
 
     push @$cmd, $scfg->{path};
-    
+
     run_command($cmd, errmsg => "mount error");
 }
 
@@ -115,11 +115,11 @@ sub plugindata {
 
 sub properties {
     return {
-        mfsmaster => { 
+        mfsmaster => {
             description => "MooseFS master to use for connection (default 'mfsmaster').",
             type => 'string',
         },
-        mfsport => { 
+        mfsport => {
             description => "Port with which to connect to the MooseFS master (default 9421)",
             type => 'string',
         },
@@ -220,8 +220,8 @@ sub alloc_image {
     File::Path::make_path($imagedir);
 
     my $path = "$imagedir/$name";
-    my $cmd = ['/usr/bin/mfsbdev', 'create', $path, $size];
-    run_command($cmd, errmsg => 'mfsbdev create failed');
+    my $cmd = ['/usr/sbin/mfsbdev', 'map', $path, '-s', $size];
+    run_command($cmd, errmsg => 'mfsbdev map failed');
 
     return "$vmid/$name";
 }
@@ -237,9 +237,29 @@ sub free_image {
     my $path = "$scfg->{path}/images/$vmid/$name";
 
     if (-e $path) {
-        my $cmd = ['/usr/bin/mfsbdev', 'remove', $path];
-        run_command($cmd, errmsg => 'mfsbdev remove failed');
+        my $cmd = ['/usr/sbin/mfsbdev', 'unmap', $path];
+        run_command($cmd, errmsg => 'mfsbdev unmap failed');
         unlink $path if -e $path;
+    }
+
+    return undef;
+}
+
+sub volume_resize {
+    my ($class, $scfg, $storeid, $volname, $size) = @_;
+
+    return $class->SUPER::volume_resize(@_) if !$scfg->{mfsbdev};
+
+    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
+    return $class->SUPER::volume_resize(@_) if $vtype ne 'images';
+
+    my $path = "$scfg->{path}/images/$vmid/$name";
+
+    if (-e $path) {
+        my $cmd = ['/usr/sbin/mfsbdev', 'resize', $path, $size];
+        run_command($cmd, errmsg => 'mfsbdev resize failed');
+    } else {
+        die "volume '$volname' does not exist\n";
     }
 
     return undef;
@@ -320,7 +340,7 @@ sub status {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
-    
+
     my $mfssubfolder = $scfg->{mfssubfolder};
 
     return undef if !moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder);
@@ -339,11 +359,11 @@ sub activate_storage {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
-    
+
     my $mfssubfolder = $scfg->{mfssubfolder};
 
     if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder)) {
-        
+
         mkpath $path if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
 
         die "unable to activate storage '$storeid' - " .
@@ -366,7 +386,7 @@ sub on_delete_hook {
     my $mfsmaster = $scfg->{mfsmaster} // 'mfsmaster';
 
     my $mfsport = $scfg->{mfsport} // '9421';
-    
+
     my $mfssubfolder = $scfg->{mfssubfolder};
 
     if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder)) {
