@@ -1,6 +1,8 @@
 # pve-moosefs
 MooseFS on Proxmox.
 
+Working on an initial release! If you want to try it sooner, email me - zorlin@gmail.com
+
 ![image](https://github.com/user-attachments/assets/f70d2908-7111-4b47-bcb8-eed793a85c11)
 
 # Features
