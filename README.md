@@ -5,9 +5,9 @@ Working on an initial release! If you want to try it sooner, email me - zorlin@g
 
 ![image](https://github.com/user-attachments/assets/f70d2908-7111-4b47-bcb8-eed793a85c11)
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/proxmox/pve-storage)
-
 # Features
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Zorlin/pve-moosefs)
+
 * Natively use MooseFS storage on Proxmox.
 * Support for MooseFS clusters with passwords and subfolders
 * Live migrate VMs between Proxmox hosts with the VMs living on MooseFS storage
