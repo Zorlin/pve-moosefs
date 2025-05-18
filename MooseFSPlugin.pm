@@ -220,8 +220,8 @@ sub alloc_image {
     File::Path::make_path($imagedir);
 
     my $path = "$imagedir/$name";
-    my $cmd = ['/usr/bin/mfsbdev', 'create', $path, $size];
-    run_command($cmd, errmsg => 'mfsbdev create failed');
+    my $cmd = ['/usr/sbin/mfsbdev', 'map', $path, '-s', $size];
+    run_command($cmd, errmsg => 'mfsbdev map failed');
 
     return "$vmid/$name";
 }
@@ -237,12 +237,32 @@ sub free_image {
     my $path = "$scfg->{path}/images/$vmid/$name";
 
     if (-e $path) {
-        my $cmd = ['/usr/bin/mfsbdev', 'remove', $path];
-        run_command($cmd, errmsg => 'mfsbdev remove failed');
+        my $cmd = ['/usr/sbin/mfsbdev', 'unmap', $path];
+        run_command($cmd, errmsg => 'mfsbdev unmap failed');
         unlink $path if -e $path;
     }
 
     return undef;
+sub volume_resize {
+    my ($class, $scfg, $storeid, $volname, $size) = @_;
+
+    return $class->SUPER::volume_resize(@_) if !$scfg->{mfsbdev};
+
+    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
+    return $class->SUPER::volume_resize(@_) if $vtype ne 'images';
+
+    my $path = "$scfg->{path}/images/$vmid/$name";
+
+    if (-e $path) {
+        my $cmd = ['/usr/sbin/mfsbdev', 'resize', $path, $size];
+        run_command($cmd, errmsg => 'mfsbdev resize failed');
+    } else {
+        die "volume '$volname' does not exist\n";
+    }
+
+    return undef;
+}
+
 }
 
 sub volume_snapshot {
