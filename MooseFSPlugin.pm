@@ -20,11 +20,14 @@ sub log_debug {
     my $logfile = '/var/log/mfsplugindebug.log';
     my $timestamp = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
 
-    my $cmd = ['/usr/bin/logger', '-t', 'MooseFSPlugin', '-p', 'daemon.debug', $msg];
-    run_command($cmd);
-
-    $cmd = ['/bin/sh', '-c', "echo '$timestamp: $msg' >> $logfile"];
-    run_command($cmd, errmsg => "Failed to write to log file");
+    # Direct file write instead of fragile shell echo
+    my $fh = IO::File->new(">> $logfile");
+    if ($fh) {
+        print $fh "$timestamp: $msg\n";
+        $fh->close;
+    } else {
+        warn "Failed to open $logfile for writing: $!";
+    }
 }
 
 # MooseFS helper functions
@@ -32,6 +35,8 @@ sub moosefs_is_mounted {
     my ($mfsmaster, $mfsport, $mountpoint, $mountdata, $mfssubfolder) = @_;
     $mountdata = PVE::ProcFSTools::parse_proc_mounts() if !$mountdata;
 
+    # Default to empty subfolder if not provided
+    $mfssubfolder ||= '';
     # Strip leading slashes from mfssubfolder
     $mfssubfolder =~ s|^/+||;
     my $subfolder_pattern = defined($mfssubfolder) ? "\Q/$mfssubfolder\E" : "";
@@ -48,8 +53,6 @@ sub moosefs_is_mounted {
 
 # Returns true only if /dev/mfs/nbdsock exists _and_ we can open() it as a UNIX stream.
 sub moosefs_bdev_is_active {
-    log_debug "Checking if bdev is active";
-
     my ($scfg) = @_;
 
     my $sockpath = '/dev/mfs/nbdsock';
@@ -77,6 +80,9 @@ sub moosefs_start_bdev {
     my $mfsport = $scfg->{mfsport};
 
     my $mfssubfolder = $scfg->{mfssubfolder};
+
+    # Do not start mfsbdev if it is already running
+    return if moosefs_bdev_is_active($scfg);
 
     my $cmd = ['/usr/sbin/mfsbdev', 'start', '-H', $mfsmaster, '-S', 'proxmox', '-p', $mfspassword];
 
@@ -138,10 +144,10 @@ sub moosefs_unmount {
 
     my $mfsport = $scfg->{mfsport} // '9421';
 
-    #if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $mountdata)) {
-    my $cmd = ['/bin/umount', $path];
-    run_command($cmd, errmsg => 'umount error');
-    #}
+    if (moosefs_is_mounted($mfsmaster, $mfsport, $path, $mountdata)) {
+        my $cmd = ['/bin/umount', $path];
+        run_command($cmd, errmsg => 'umount error');
+    }
 }
 
 sub api {
@@ -239,12 +245,12 @@ sub volume_has_feature {
         $key =  $isBase ? 'base' : 'current';
     }
 
-    # TODO: turn off qcow2 and vmdk support while bdev is active
-    # if ($scfg->{mfsbdev}) {
-    #     # Turn off qcow2 and vmdk support for bdev
-    #     $features->{$feature}->{$key}->{qcow2} = 0;
-    #     $features->{$feature}->{$key}->{vmdk} = 0;
-    # }
+    # Turn off qcow2 and vmdk support while bdev is active
+    if ($scfg->{mfsbdev}) {
+        # Turn off qcow2 and vmdk support for bdev
+        $features->{$feature}->{$key}->{qcow2} = 0;
+        $features->{$feature}->{$key}->{vmdk} = 0;
+    }
 
     if (defined($features->{$feature}->{$key}->{$format})) {
         return 1;
@@ -272,15 +278,22 @@ sub parse_volname {
         return ('images', $name, $vmid, undef, undef, undef, $format);
     }
 
-    # 2) Pure-name style: "vm-117-disk-0" or "base-117-…"
-    if ($volname =~ m!^((vm|base)-(\d+)-\S+)$!) {
+    # 2) Pure-name style: "vm-117-disk-0" or "base-117-…" (allow .qcow2/.vmdk)
+    elsif ($volname =~ m!^((vm|base)-(\d+)-\S+)$!) {
         my ($name, $is_base, $vmid) = ($1, $2 eq 'base', $3);
 
-        return ('images', $name, $vmid, undef, undef, $is_base, 'raw');
+        # detect format by extension here as well
+        my $format = 'raw';
+        $format = 'qcow2' if $name =~ /\.qcow2$/;
+        $format = 'vmdk'  if $name =~ /\.vmdk$/;
+
+        return ('images', $name, $vmid, undef, undef, $is_base, $format);
     }
 
-    # If the base implementation couldn't parse it, throw our own error
-    die "unable to parse volume filename '$volname'\n";
+
+
+    # Fallback to superclass for all other content types / patterns
+    return $class->SUPER::parse_volname($volname);
 }
 
 sub alloc_image {
@@ -342,7 +355,13 @@ sub map_volume {
 
     # Construct the MooseFS path from the parsed components  
     my $mfs_path = "/images/$vmid/$name";  
-      
+
+    # Check if MooseFS bdev is active
+    if (!moosefs_bdev_is_active($scfg)) {
+        log_debug "MooseFS bdev is not active, activating it";
+        moosefs_bdev_start($scfg);
+    }
+
     # Check if the volume is already mapped  
     my $list_cmd = ['/usr/sbin/mfsbdev', 'list'];  
     my $list_output = '';  
@@ -352,15 +371,16 @@ sub map_volume {
     if ($@) {  
         log_debug "Failed to list MooseFS block devices: $@";  
         return $class->SUPER::filesystem_path(@_);  
-    }  
-      
-    # Parse the output to find our file  
-    # Format: file: /images/117/vm-117-disk-0 ; device: /dev/nbd0 ; ...  
-    if ($list_output =~ m|file:\s+\Q$mfs_path\E\s+;\s+device:\s+(/dev/nbd\d+)|) {  
-        my $nbd_path = $1;  
-        log_debug "Found existing NBD device $nbd_path for volume $volname";
-        # If the volume is already mapped, return the NBD device path
-        return $nbd_path;  
+    }
+
+    # improved parsing: scan each line, allow any spacing/order
+    for my $line (split /\r?\n/, $list_output) {
+        # match "file: <path>" then later "device: /dev/nbdX" on the same line
+        if ($line =~ /\bfile:\s*\Q$mfs_path\E\b.*?\bdevice:\s*(\/dev\/nbd\d+)/) {
+            my $nbd_path = $1;
+            log_debug "Found existing NBD device $nbd_path for volume $volname via improved parsing";
+            return $nbd_path;
+        }
     }
 
     # Fetch size from the size file alongside the block device
@@ -457,6 +477,12 @@ sub filesystem_path {
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
     my $path = "/images/$vmid/$name";  
 
+    # Check if MooseFS bdev is active
+    if (!moosefs_bdev_is_active($scfg)) {
+        log_debug "MooseFS bdev is not active, activating it";
+        moosefs_bdev_start($scfg);
+    }
+
     # Run mfsbdev list to get current mappings  
     my $cmd = ['/usr/sbin/mfsbdev', 'list'];  
     my $output = '';  
@@ -466,22 +492,22 @@ sub filesystem_path {
             errmsg => 'mfsbdev list failed');  
     };  
     if ($@) {  
-        log_debug "Failed to list MooseFS block devices: $@";  
+        log_debug "[fs-path] Failed to list MooseFS block devices: $@";  
         # Fall back to regular path if we can't get mappings  
         return $class->SUPER::filesystem_path(@_);  
-    }  
+    }
 
     # Parse the output to find our file  
     # Format: file: /images/117/vm-117-disk-0 ; device: /dev/nbd0 ; ...  
     if ($output =~ m|file:\s+\Q$path\E\s+;\s+device:\s+(/dev/nbd\d+)|) {  
         my $nbd_path = $1;
-        log_debug "Found NBD device $nbd_path for volume $volname";  
+        log_debug "[fs-path] Found NBD device $nbd_path for volume $volname";  
         return $nbd_path;
     }
     else {  
         # No NBD device found, return the original filesystem path  
-        log_debug "No NBD device found for volume $volname, using regular path";
-        return $vmid."/".$name;
+        log_debug "[fs-path] No NBD device found for volume $volname, using regular path";
+        return "$scfg->{path}$path";
     }
 }
 
@@ -522,7 +548,7 @@ sub volume_snapshot {
 
     File::Path::make_path($snapdir);
 
-    print "running '/usr/bin/mfsmakesnapshot $mountpoint/images/$vmid/$name $snapdir/$name'\n";
+    log_debug "running '/usr/bin/mfsmakesnapshot $mountpoint/images/$vmid/$name $snapdir/$name'\n";
 
     my $cmd = ['/usr/bin/mfsmakesnapshot', "$mountpoint/images/$vmid/$name", "$snapdir/$name"];
 
@@ -604,7 +630,7 @@ sub activate_storage {
 
     if (!moosefs_is_mounted($mfsmaster, $mfsport, $path, $cache->{mountdata}, $mfssubfolder)) {
 
-        mkpath $path if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
+        File::Path::make_path($path) if !(defined($scfg->{mkdir}) && !$scfg->{mkdir});
 
         die "unable to activate storage '$storeid' - " .
             "directory '$path' does not exist\n" if ! -d $path;
