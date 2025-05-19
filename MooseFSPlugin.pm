@@ -172,7 +172,7 @@ sub moosefs_unmount {
 }
 
 sub api {
-    return 10;
+    return 11;
 }
 
 sub type {
@@ -287,6 +287,21 @@ sub parse_name_dir {
 sub parse_volname {
     my ($class, $volname) = @_;
 
+    if (ref($volname) eq 'HASH') {
+        $volname = $volname->{volid} || $volname->{name}
+            || die "[parse_volname] invalid hashref volname with no 'volid' or 'name'";
+    }
+
+    if (ref($volname)) {
+        log_debug "[parse-volname] FATAL: got ref($volname) = " . ref($volname);
+        Carp::confess("BOOM — someone passed a hashref as volname");
+    }
+
+    unless (defined $volname && !ref($volname)) {
+        log_debug "[parse-volname] FATAL: non-scalar volname: " . (defined $volname ? ref($volname) : 'undef');
+        Carp::confess("parse_volname called with invalid type");
+    }
+
     log_debug "[parse-volname] Parsing volume name: $volname";
 
     my $storeid;
@@ -383,7 +398,7 @@ sub map_volume {
     my ($vtype, $name, $vmid, undef, undef, $isBase, $format) = $class->parse_volname($volname);
 
     # Only handle raw format image volumes
-    return $class->SUPER::activate_volume(@_) if $vtype ne 'images' || $format ne 'raw';
+    return $class->SUPER::activate_volume($storeid, $scfg, $volname, $snapname) if $vtype ne 'images' || $format ne 'raw';
 
     # Construct the MooseFS path from the parsed components  
     my $mfs_path = "/images/$vmid/$name";  
@@ -402,7 +417,7 @@ sub map_volume {
     };  
     if ($@) {  
         log_debug "Failed to list MooseFS block devices: $@";  
-        return $class->SUPER::filesystem_path(@_);  
+        return $class->SUPER::filesystem_path($scfg, $volname, $snapname); 
     }
 
     # improved parsing: scan each line, allow any spacing/order
@@ -441,7 +456,7 @@ sub map_volume {
     if ($@) {  
         log_debug "Failed to map MooseFS block device: $@";  
         # Fall back to regular path if we can't get mappings  
-        return $class->SUPER::filesystem_path(@_);  
+        return $class->SUPER::filesystem_path($scfg, $volname, $snapname);
     }
 
     if ($map_output =~ m|->(/dev/nbd\d+)|) {  
@@ -452,7 +467,7 @@ sub map_volume {
   
     # If we couldn't parse the output or no NBD device was found  
     log_debug "No NBD device found in output: $map_output";  
-    return $class->SUPER::filesystem_path(@_); 
+    return $class->SUPER::filesystem_path($scfg, $volname, $snapname); 
 }
 
 sub activate_volume {  
@@ -464,7 +479,7 @@ sub activate_volume {
     log_debug "[activate-volume] Activating volume $volname";
     die "Expected hashref for \$scfg in activate_volume, got: $scfg" unless ref($scfg) eq 'HASH';
 
-    return $class->SUPER::activate_volume(@_) if !$scfg->{mfsbdev};
+    return $class->SUPER::activate_volume($storeid, $scfg, $volname, $snapname) if !$scfg->{mfsbdev};
 
     $class->map_volume($storeid, $scfg, $volname, $snapname) if $scfg->{mfsbdev};
 
@@ -477,10 +492,10 @@ sub deactivate_volume {
     # Defensive - make sure $scfg is a hashref, not a storeid
     $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
 
-    return $class->SUPER::deactivate_volume(@_) if !$scfg->{mfsbdev};  
+    return $class->SUPER::deactivate_volume($storeid, $scfg, $volname, $snapname, $cache) if !$scfg->{mfsbdev};  
 
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
-    return $class->SUPER::deactivate_volume(@_) if $vtype ne 'images';  
+    return $class->SUPER::deactivate_volume($storeid, $scfg, $volname, $snapname, $cache) if $vtype ne 'images';  
 
     my $path = "/images/$vmid/$name";  
     
@@ -493,80 +508,102 @@ sub deactivate_volume {
     return 1;
 }
 
-sub path {  
-    my ($class, $scfg, $volname, $storeid, $snapname) = @_;  
+sub path {
+    my ($class, $scfg, $volname, $storeid, $snapname) = @_;
 
-    return $class->SUPER::path(@_) unless ref($scfg) eq 'HASH' && $scfg->{mfsbdev};
-
-    log_debug "[path] Trying to get the NBD device path for volume $volname";     
-    # Try to get the NBD device path  
-    my $nbd_path = $class->map_volume($storeid, $scfg, $volname, $snapname);  
-
-    # If we got an NBD device path and it exists as a block device  
-    if ($nbd_path && -b $nbd_path) {  
-        my ($vtype, $name, $vmid) = $class->parse_volname($volname);  
-        log_debug "[path] Using NBD path $nbd_path for volume $volname";  
-        return ($nbd_path, $vmid, $vtype);
-    }  
-
-    # Fall back to regular path  
-    log_debug "[path] No NBD device found for volume $volname, using regular path";  
-    return $class->SUPER::path($scfg, $volname, $storeid, $snapname);  
-}
-
-sub filesystem_path {
-    my ($class, $scfg, $volname, $snapname) = @_;
-
-    log_debug("[filesystem_path] scfg is a " . ref($scfg));
-
-    # Defensive fallback – resolve scfg from volname if it's a storeid
-    unless (ref($scfg) eq 'HASH') {
-        log_debug("[filesystem_path] scfg was not a hashref, trying to resolve from volname");
-        my ($storeid) = $volname =~ m/^([^:]+):/;
-        $scfg = PVE::Storage::config()->{ids}->{$storeid} if $storeid;
+    # sanity check: volname must be a simple scalar
+    unless (defined $volname && !ref($volname)) {
+        Carp::confess("[${\__PACKAGE__}::path] called with invalid volname: "
+            . (defined $volname ? ref($volname) : 'undef'));
     }
 
-    die "filesystem_path: expected scfg to be a hashref" unless ref($scfg) eq 'HASH';
+    # fallback to default if bdev not enabled
+    if (!ref($scfg) || !$scfg->{mfsbdev}) {
+        return $class->filesystem_path($scfg, $volname, $snapname);
+    }
 
-    log_debug "[fs-path] Trying to get the NBD device path for volume $volname";
+    log_debug "[path] bdev enabled: attempting MooseFS NBD lookup for $volname";
 
-    return $class->SUPER::filesystem_path(@_) if !$scfg->{mfsbdev};
+    my $nbd = eval { $class->map_volume($storeid, $scfg, $volname, $snapname) };
+    if ($@) {
+        log_debug "[path] map_volume error: $@";
+        return $class->filesystem_path($scfg, $volname, $snapname);
+    }
+
+    if ($nbd && -b $nbd) {
+        my ($vtype, $name, $vmid) = $class->parse_volname($volname);
+        log_debug "[path] using NBD $nbd for $volname";
+        return ($nbd, $vmid, $vtype);
+    }
+
+    log_debug "[path] no NBD found; defaulting back";
+    return $class->filesystem_path($scfg, $volname, $snapname);
+}
+
+use Carp qw(longmess);
+
+sub filesystem_path {
+    my ($class, @args) = @_;
+
+    log_debug "[fs-path] ARGS = " . join(", ", map { defined($_) ? (ref($_) || $_) : 'undef' } @args);
+
+    # Normalize @args to find the scfg hashref
+    while (@args && ref($args[0]) ne 'HASH') {
+        log_debug "[filesystem_path] Stripping leading non-HASH arg: $args[0]";
+        shift @args;
+    }
+
+    my ($scfg, $volname, $snapname) = @args;
+    die "[fs-path] invalid scfg" unless ref($scfg) eq 'HASH';
+    
+    my $ts = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
+    log_debug("[filesystem_path] TRACE triggered at $ts");
+    log_debug("[filesystem_path] scfg type: " . ref($scfg));
+    log_debug("[filesystem_path] volname: $volname");
+    log_debug("[filesystem_path] backtrace:\n" . longmess("[filesystem_path]"));
 
     my ($vtype, $name, $vmid, undef, undef, $isBase, $format) = $class->parse_volname($volname);
 
-    return $class->SUPER::filesystem_path(@_) if $vtype ne 'images' || $format ne 'raw';
+    # Only do NBD logic for raw images
+    unless ($scfg->{mfsbdev} && $vtype eq 'images' && $format eq 'raw') {
+        return $class->SUPER::filesystem_path($scfg, $volname, $snapname);
+    }
+
+    log_debug "[fs-path] Attempting NBD path resolution for $volname";
 
     my $path = "/images/$vmid/$name";
 
     if (!moosefs_bdev_is_active($scfg)) {
-        log_debug "MooseFS bdev is not active, activating it";
+        log_debug "MooseFS bdev not active, activating";
         moosefs_start_bdev($scfg);
     }
 
     my $cmd = ['/usr/sbin/mfsbdev', 'list'];
     my $output = '';
     eval {
-        run_command($cmd,
-            outfunc => sub { $output .= shift; },
-            errmsg => 'mfsbdev list failed');
+        run_command($cmd, outfunc => sub { $output .= shift; }, errmsg => 'mfsbdev list failed');
     };
     if ($@) {
-        log_debug "[fs-path] Failed to list MooseFS block devices: $@";
-        return $class->SUPER::filesystem_path(@_);
+        log_debug "[fs-path] mfsbdev list failed: $@";
+        return $class->SUPER::filesystem_path($scfg, $volname, $snapname);
     }
 
     if ($output =~ m|file:\s+\Q$path\E\s+;\s+device:\s+(/dev/nbd\d+)|) {
-        my $nbd_path = $1;
-        log_debug "[fs-path] Found NBD device $nbd_path for volume $volname";
-        return $nbd_path;
-    } else {
-        log_debug "[fs-path] No NBD device found for volume $volname, using regular path";
-        return "$scfg->{path}$path";
+        my $nbd = $1;
+        log_debug "[fs-path] Found mapped device: $nbd";
+        return $nbd;
     }
+
+    log_debug "[fs-path] No mapped device found, falling back to $scfg->{path}$path";
+    return "$scfg->{path}$path";
 }
 
 sub volume_resize {
     my ($class, $scfg, $storeid, $volname, $size, $running) = @_;
+
+    unless (defined $volname && !ref($volname)) {
+        Carp::confess("[${\__PACKAGE__}::$0] called with invalid volname: " . (defined $volname ? ref($volname) : 'undef'));
+    }
 
     # Defensive - make sure $scfg is a hashref, not a storeid
     $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';

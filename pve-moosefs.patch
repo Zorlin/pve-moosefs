@@ -76,6 +76,13 @@
 +                uncheckedValue: 0,
 +                fieldLabel: gettext('Shared'),
 +            },
++            {
++                xtype: 'proxmoxcheckbox',
++                name: 'mfsbdev',
++                checked: false,
++                uncheckedValue: 0,
++                fieldLabel: gettext('Use Block Device'),
++            },
 +        ];
 +
 +        me.advancedColumn1 = [
