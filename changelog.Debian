@@ -1,3 +1,9 @@
+libpve-storage-custom-moosefs-perl (0.1.3-1) unstable; urgency=medium
+
+  * Full support for mfsbdev.
+
+ -- Benjamin Arntzen <zorlin@gmail.com>  Mon, 19 May 2025 07:20:00 +0100
+
 libpve-storage-custom-moosefs-perl (0.1.2-1) unstable; urgency=medium
 
   * Initial support for mfsbdev block device backend.
