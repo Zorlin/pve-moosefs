@@ -18,19 +18,16 @@ or email zorlin@gmail.com with comments.
 
 ## Future features
 * Instant snapshots and rollbacks
+* Instant clones
 
 ## DISCLAIMER
 This is **HIGHLY EXPERIMENTAL!** 
 
 I'm running it in production, but you should be careful.
 
-**Do not use snapshots with your MooseFS storage, as they are actively being worked on and not ready yet**
+**Do not use snapshots in MooseFS bdev mode as they are actively being worked on and not ready yet**
 
 ## Usage
-Adding as storage             |  Viewing a MooseFS storage target
-:-------------------------:|:-------------------------:
-![image](https://github.com/user-attachments/assets/0a6fc0cb-46c5-4cd6-a2b6-f6930159e2ea) |  ![image](https://github.com/Zorlin/pve-moosefs/assets/1369772/b8218b51-c6df-4524-9f7d-358d59624f9a)
-
 Perform the following steps on your Proxmox host(s):
 
 Easy:
@@ -72,17 +69,19 @@ Thanks to the following sources for code contributions:
 * Proxmox GlusterFS and CephFS plugins - Also used in building the skeleton
 
 ## Changelog
-v0.1.0 - Initial release
-* Major features
-* Mount, unmount and setup shared MooseFS storage on your Proxmox cluster
-* Snapshots not working in this build
+
+v0.1.3 - Features
+* Full support for MooseFS block device (mfsbdev)
+
+
+v0.1.2 - Features
+* Initial support for the MooseFS block device (mfsbdev)
 
 v0.1.1 - Bug fixes
 * Add 'container' as an option in the Proxmox GUI to allow containers to be stored on MooseFS
 * Allow leading `/` on mfssubfolder
 
-v0.1.2 - Features
-* Initial support for the MooseFS block device (mfsbdev)
-
-v0.1.3 - Features
-* Full support for MooseFS block device (mfsbdev)
+v0.1.0 - Initial release
+* Major features
+* Mount, unmount and setup shared MooseFS storage on your Proxmox cluster
+* Snapshots not working in this build
