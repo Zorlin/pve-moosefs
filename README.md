@@ -1,7 +1,9 @@
 # pve-moosefs
 MooseFS on Proxmox.
 
-Working on an initial release! If you want to try it sooner, email me - zorlin@gmail.com
+Please give me feedback! Feel free to open issues or open discussions,
+
+or email zorlin@gmail.com with comments.
 
 ![image](https://github.com/user-attachments/assets/f70d2908-7111-4b47-bcb8-eed793a85c11)
 
@@ -18,9 +20,9 @@ Working on an initial release! If you want to try it sooner, email me - zorlin@g
 * Instant snapshots and rollbacks
 
 ## DISCLAIMER
-This is **HIGHLY EXPERIMENTAL!** I'm running it in production, but you should be careful.
+This is **HIGHLY EXPERIMENTAL!** 
 
-Call it pre-alpha quality.
+I'm running it in production, but you should be careful.
 
 **Do not use snapshots with your MooseFS storage, as they are actively being worked on and not ready yet**
 
