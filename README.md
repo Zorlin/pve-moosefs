@@ -5,7 +5,7 @@ Please give me feedback! Feel free to open issues or open discussions,
 
 or email zorlin@gmail.com with comments.
 
-![image](https://github.com/user-attachments/assets/f70d2908-7111-4b47-bcb8-eed793a85c11)
+<img width="597" alt="image" src="https://github.com/user-attachments/assets/a3d13281-344e-4ec4-9ed8-7556582e5d5b" />
 
 # Features
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Zorlin/pve-moosefs)
@@ -34,11 +34,11 @@ Adding as storage             |  Viewing a MooseFS storage target
 Perform the following steps on your Proxmox host(s):
 
 Easy:
-* Upgrade to Proxmox 8.3.5
+* Upgrade to Proxmox 8.4.1
 * Install the attached .deb file in Releases.
 
 Harder:
-* Upgrade to Proxmox 8.3.5
+* Upgrade to Proxmox 8.4.1
 * Clone this Git repository and enter it with `cd`
 * Make the Debian package: `make`
 * Install the Debian package: `dpkg -i *.deb`
@@ -59,7 +59,7 @@ You can apply the following optional settings:
 * --mfsmaster mfsmaster.my.hostname - Set the mfsmaster IP or hostname to help MooseFS find the metadata server(s).
 * --mfspassword mypasswordhere - If your MooseFS exports require a password to mount MooseFS, set this.
 * --mfssubfolder media - If you need to use a folder within MooseFS instead of pointing at the root of the filesystem, set this.
-* --mfsport 9421 - If you're running the mfsmaster on a custom port, you can set this. Note: Currently unused 🚧
+* --mfsport 9421 - Coming soon 🚧
 
 ## Credits
 Huge thanks to the following contributors:
@@ -83,3 +83,6 @@ v0.1.1 - Bug fixes
 
 v0.1.2 - Features
 * Initial support for the MooseFS block device (mfsbdev)
+
+v0.1.3 - Features
+* Full support for MooseFS block device (mfsbdev)
