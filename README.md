@@ -6,7 +6,7 @@ Adds MooseFS as a storage option in Proxmox VE.
 ## DISCLAIMER
 This is **HIGHLY EXPERIMENTAL!** 
 
-@Zorlin is running it in production on multiple clusters, but it should be considered unstable for now.
+[@Zorlin](https://github.com/Zorlin) is running it in production on multiple clusters, but it should be considered unstable for now.
 
 # Preview
 <img width="597" alt="image" src="https://github.com/user-attachments/assets/a3d13281-344e-4ec4-9ed8-7556582e5d5b" />
@@ -59,9 +59,8 @@ You can apply the following optional settings:
 
 ## Credits
 Huge thanks to the following contributors:
-* @anwright - Major fixes, snapshots, general cleanup
-* @pkonopelko - General advice
-
+* [@anwright](https://github.com/anwright) - Major fixes, snapshots, general cleanup
+* [@pkonopelko](https://github.com/pkonopelko) - General advice
 Thanks to the following sources for code contributions:
 * https://github.com/mityarzn/pve-storage-custom-mpnetapp - Initial plugin skeleton, packaging
 * https://forums.servethehome.com/index.php?threads/custom-storage-plugins-for-proxmox.12558/ - Also used building the skeleton
@@ -71,7 +70,6 @@ Thanks to the following sources for code contributions:
 
 v0.1.3 - Features
 * Full support for MooseFS block device (mfsbdev)
-
 
 v0.1.2 - Features
 * Initial support for the MooseFS block device (mfsbdev)
