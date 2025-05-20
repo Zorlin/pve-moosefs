@@ -8,6 +8,9 @@ This is **HIGHLY EXPERIMENTAL!**
 
 @Zorlin is running it in production on multiple clusters, but it should be considered unstable for now.
 
+# Preview
+<img width="597" alt="image" src="https://github.com/user-attachments/assets/a3d13281-344e-4ec4-9ed8-7556582e5d5b" />
+
 # Features
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Zorlin/pve-moosefs)
 
