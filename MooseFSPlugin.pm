@@ -376,6 +376,12 @@ sub free_image {
 
     $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
 
+    # Return early if volname is undefined
+    unless (defined $volname) {
+        log_debug "[free_image] volname is undefined, skipping";
+        return undef;
+    }
+
     return $class->SUPER::free_image(@_) if !$scfg->{mfsbdev};
 
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);
@@ -395,6 +401,14 @@ sub free_image {
 
 sub map_volume {
     my ($class, $storeid, $scfg, $volname, $snapname) = @_;
+
+    # Return early if volname is undefined
+    unless (defined $volname) {
+        log_debug "[map_volume] volname is undefined, skipping";
+        # Or, perhaps fall back to a SUPER call if appropriate for this method
+        return $class->SUPER::activate_volume($storeid, $scfg, $volname, $snapname); 
+    }
+
     my ($vtype, $name, $vmid, undef, undef, $isBase, $format) = $class->parse_volname($volname);
 
     # Only handle raw format image volumes
@@ -512,9 +526,16 @@ sub path {
     my ($class, $scfg, $volname, $storeid, $snapname) = @_;
 
     # sanity check: volname must be a simple scalar
-    unless (defined $volname && !ref($volname)) {
+    # also handle case where volname is undef before ref() check
+    if (defined $volname && ref($volname)) {
         Carp::confess("[${\__PACKAGE__}::path] called with invalid volname: "
-            . (defined $volname ? ref($volname) : 'undef'));
+            . ref($volname));
+    }
+
+    # Return early if volname is undefined
+    unless (defined $volname) {
+        log_debug "[path] volname is undefined, returning filesystem_path";
+        return $class->filesystem_path($scfg, $volname, $snapname);
     }
 
     # fallback to default if bdev not enabled
@@ -556,6 +577,12 @@ sub filesystem_path {
     my ($scfg, $volname, $snapname) = @args;
     die "[fs-path] invalid scfg" unless ref($scfg) eq 'HASH';
     
+    # Return early if volname is undefined
+    unless (defined $volname) {
+        log_debug "[fs-path] volname is undefined, returning parent class path";
+        return $class->SUPER::filesystem_path($scfg, $volname, $snapname);
+    }
+
     my $ts = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
     log_debug("[filesystem_path] TRACE triggered at $ts");
     log_debug("[filesystem_path] scfg type: " . ref($scfg));
