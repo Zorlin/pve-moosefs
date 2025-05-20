@@ -266,11 +266,16 @@ sub volume_has_feature {
         $key =  $isBase ? 'base' : 'current';
     }
 
-    # Turn off qcow2 and vmdk support while bdev is active
+    # If mfsbdev is active, qcow2 and vmdk are generally not supported for NBD-backed devices.
+    # However, we want to keep them enabled for efidisks, as they will be file-backed.
     if ($scfg->{mfsbdev}) {
-        # Turn off qcow2 and vmdk support for bdev
-        $features->{$feature}->{$key}->{qcow2} = 0;
-        $features->{$feature}->{$key}->{vmdk} = 0;
+        if (!(defined($name) && $name =~ m/efidisk/i)) {
+            log_debug "[volume_has_feature] mfsbdev is ON and '$name' is NOT an efidisk. Disabling qcow2/vmdk for $feature/$key.";
+            $features->{$feature}->{$key}->{qcow2} = 0;
+            $features->{$feature}->{$key}->{vmdk} = 0;
+        } else {
+            log_debug "[volume_has_feature] mfsbdev is ON but '$name' IS an efidisk. qcow2/vmdk support remains for $feature/$key.";
+        }
     }
 
     if (defined($features->{$feature}->{$key}->{$format})) {
@@ -292,14 +297,14 @@ sub parse_volname {
             || die "[parse_volname] invalid hashref volname with no 'volid' or 'name'";
     }
 
-    if (ref($volname)) {
-        log_debug "[parse-volname] FATAL: got ref($volname) = " . ref($volname);
-        Carp::confess("BOOM — someone passed a hashref as volname");
-    }
-
+    # If $volname is not a defined scalar, or if it's a reference (e.g., HASHref),
+    # log the situation and delegate to the parent class's implementation.
+    # This handles cases where PVE calls with undef during cleanup.
     unless (defined $volname && !ref($volname)) {
-        log_debug "[parse-volname] FATAL: non-scalar volname: " . (defined $volname ? ref($volname) : 'undef');
-        Carp::confess("parse_volname called with invalid type");
+        log_debug "[parse-volname] volname is not a defined non-reference scalar: " . 
+                  (defined $volname ? ref($volname) : 'undef') . 
+                  ". Delegating to SUPER::parse_volname.";
+        return $class->SUPER::parse_volname($volname);
     }
 
     log_debug "[parse-volname] Parsing volume name: $volname";
@@ -344,8 +349,9 @@ sub alloc_image {
             or die "alloc_image: unable to resolve config for '$storeid'";
     }
 
+    # If mfsbdev is not enabled, or if the volume is an efidisk, bypass the NBD logic.
     return $class->SUPER::alloc_image($storeid, $scfg, $vmid, $fmt, $name, $size)
-        if !$scfg->{mfsbdev};
+        if !$scfg->{mfsbdev} or $name =~ m/efidisk/i;
 
     die "mfsbdev only supports raw format" if $fmt ne 'raw';
     $name = $class->find_free_diskname($storeid, $scfg, $vmid, $fmt) if !$name;
@@ -402,6 +408,15 @@ sub free_image {
 sub map_volume {
     my ($class, $storeid, $scfg, $volname, $snapname) = @_;
 
+    # Ensure $scfg is a hashref if it was passed as a storeid (though less likely for this internal func)
+    $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
+
+    # This function's NBD mapping logic is only relevant if mfsbdev is enabled.
+    if (!ref($scfg) || !$scfg->{mfsbdev}) {
+        log_debug "[map_volume] mfsbdev not enabled or invalid scfg. Path: $scfg->{path}. Volname: $volname. Returning undef.";
+        return undef;
+    }
+
     # Return early if volname is undefined
     unless (defined $volname) {
         log_debug "[map_volume] volname is undefined, skipping";
@@ -447,16 +462,28 @@ sub map_volume {
     # Fetch size from the size file alongside the block device
     my $size_file = "$scfg->{path}/images/$vmid/$name.size";
     log_debug "Size file $size_file";
-    my $size = -e $size_file ? do { open(my $fh, '<', $size_file) or die "Failed to open $size_file: $!"; local $/; <$fh> } : 0;
+    my $size_kib = 0; # Default to 0 KiB
+    if (-e $size_file) {
+        my $size_content = do { open(my $fh, '<', $size_file) or log_debug "Failed to open $size_file: $!"; local $/; <$fh> };
+        if (defined $size_content && $size_content =~ /^(\d+)$/) {
+            $size_kib = $1;
+        } else {
+            log_debug "Invalid or empty content in size file: $size_file. Content: '" . (defined $size_content ? $size_content : "undef") . "'";
+        }
+    } else {
+        log_debug "Size file $size_file does not exist.";
+    }
 
     my $path = "/images/$vmid/$name";
 
     # Size is in kibibytes, but MooseFS expects bytes
-    my ($safe_size) = $size =~ /^(\d+)$/; 
-    my $size_bytes = $safe_size * 1024;
+    my $size_bytes = $size_kib * 1024;
     
-    # Die if size is 0
-    die "Size must be > 0 for volume $volname" if $size_bytes <= 0;
+    # If size is 0 or less, log and return undef, as mapping such a volume is not possible or meaningful.
+    if ($size_bytes <= 0) {
+        log_debug "Calculated size_bytes is $size_bytes for volume $volname (source KiB: $size_kib). Cannot map, returning undef.";
+        return undef; # Indicate failure to map due to invalid size
+    }
 
     log_debug "Activating volume $volname with size $size_bytes";
 
@@ -543,7 +570,15 @@ sub path {
         return $class->filesystem_path($scfg, $volname, $snapname);
     }
 
-    log_debug "[path] bdev enabled: attempting MooseFS NBD lookup for $volname";
+    # If mfsbdev is enabled, check if this is an efidisk.
+    # Efidisks should always use filesystem_path, not NBD.
+    my ($vtype_path, $name_path) = $class->parse_volname($volname);
+    if (defined($name_path) && $name_path =~ m/efidisk/i) {
+        log_debug "[path] Volume '$volname' (name: '$name_path') is an efidisk. Forcing filesystem_path.";
+        return $class->filesystem_path($scfg, $volname, $snapname);
+    }
+
+    log_debug "[path] bdev enabled for non-efidisk volume: attempting MooseFS NBD lookup for $volname";
 
     my $nbd = eval { $class->map_volume($storeid, $scfg, $volname, $snapname) };
     if ($@) {
@@ -577,10 +612,10 @@ sub filesystem_path {
     my ($scfg, $volname, $snapname) = @args;
     die "[fs-path] invalid scfg" unless ref($scfg) eq 'HASH';
     
-    # Return early if volname is undefined
+    # If volname is undefined, it's likely a request for the storage base path.
     unless (defined $volname) {
-        log_debug "[fs-path] volname is undefined, returning parent class path";
-        return $class->SUPER::filesystem_path($scfg, $volname, $snapname);
+        log_debug "[fs-path] volname is undefined. Returning storage base path: $scfg->{path}";
+        return $scfg->{path};
     }
 
     my $ts = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
