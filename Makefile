@@ -1,4 +1,4 @@
-VERSION=0.1.2
+VERSION=0.1.4
 PACKAGE=libpve-storage-custom-moosefs-perl
 PKGREL=1
 

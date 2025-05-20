@@ -70,6 +70,13 @@ Thanks to the following sources for code contributions:
 * Proxmox GlusterFS and CephFS plugins - Also used in building the skeleton
 
 ## Changelog
+v0.1.4 - Bug fixes
+* Lots of small fixes
+* Defensive fixes for various edge cases
+* Proper support for LXC
+* Live migration fixes
+* Unmapping fixes
+* Clone fixes
 
 v0.1.3 - Features
 * Full support for MooseFS block device (mfsbdev)
