@@ -1,11 +1,12 @@
 # pve-moosefs
 MooseFS on Proxmox.
 
-Please give me feedback! Feel free to open issues or open discussions,
+Adds MooseFS as a storage option in Proxmox VE.
 
-or email zorlin@gmail.com with comments.
+## DISCLAIMER
+This is **HIGHLY EXPERIMENTAL!** 
 
-<img width="597" alt="image" src="https://github.com/user-attachments/assets/a3d13281-344e-4ec4-9ed8-7556582e5d5b" />
+@Zorlin is running it in production on multiple clusters, but it should be considered unstable for now.
 
 # Features
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Zorlin/pve-moosefs)
@@ -19,11 +20,6 @@ or email zorlin@gmail.com with comments.
 ## Future features
 * Instant snapshots and rollbacks
 * Instant clones
-
-## DISCLAIMER
-This is **HIGHLY EXPERIMENTAL!** 
-
-I'm running it in production, but you should be careful.
 
 **Do not use snapshots in MooseFS bdev mode as they are actively being worked on and not ready yet**
 
