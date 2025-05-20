@@ -59,9 +59,12 @@ You can apply the following optional settings:
 
 ## Credits
 Huge thanks to the following contributors:
+
 * [@anwright](https://github.com/anwright) - Major fixes, snapshots, general cleanup
 * [@pkonopelko](https://github.com/pkonopelko) - General advice
+
 Thanks to the following sources for code contributions:
+
 * https://github.com/mityarzn/pve-storage-custom-mpnetapp - Initial plugin skeleton, packaging
 * https://forums.servethehome.com/index.php?threads/custom-storage-plugins-for-proxmox.12558/ - Also used building the skeleton
 * Proxmox GlusterFS and CephFS plugins - Also used in building the skeleton
