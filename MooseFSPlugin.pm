@@ -350,8 +350,9 @@ sub alloc_image {
     }
 
     # If mfsbdev is not enabled, or if the volume is an efidisk, bypass the NBD logic.
+    # We bypass the NBD logic for any disk of size <= 8MiB, as it's very likely an EFI disk.
     return $class->SUPER::alloc_image($storeid, $scfg, $vmid, $fmt, $name, $size)
-        if !$scfg->{mfsbdev} or $name =~ m/efidisk/i;
+        if !$scfg->{mfsbdev} or $size <= 8 * 1024;
 
     die "mfsbdev only supports raw format" if $fmt ne 'raw';
     $name = $class->find_free_diskname($storeid, $scfg, $vmid, $fmt) if !$name;
@@ -382,24 +383,38 @@ sub free_image {
 
     $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
 
-    # Return early if volname is undefined
     unless (defined $volname) {
         log_debug "[free_image] volname is undefined, skipping";
         return undef;
     }
 
-    return $class->SUPER::free_image(@_) if !$scfg->{mfsbdev};
+    my ($vtype, $parsed_name, $vmid) = $class->parse_volname($volname);
 
-    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
-    return $class->SUPER::free_image(@_) if $vtype ne 'images';
+    if (!$scfg->{mfsbdev} ||                               # mfsbdev globally off
+        (defined($parsed_name) && $parsed_name =~ m/efidisk/i) || # it IS an efidisk
+        $vtype ne 'images'                                 # not an image type for mfsbdev
+       ) {
+        my $reason = "";
+        $reason .= "mfsbdev_off. " if !$scfg->{mfsbdev};
+        $reason .= "is_efidisk ('$parsed_name'). " if (defined($parsed_name) && $parsed_name =~ m/efidisk/i);
+        $reason .= "not_image_type ($vtype). " if $vtype ne 'images';
+        log_debug "[free_image] Vol: $volname. Reason: $reason Using SUPER::free_image.";
+        return $class->SUPER::free_image(@_); # Pass original args
+    }
 
-    my $path = "/images/$vmid/$name";
+    # If we made it this far, mfsbdev is ON, it's an image, and it's NOT an efidisk.
+    my $mfs_internal_path = "/images/$vmid/$parsed_name"; # Path for mfsbdev command
+    # Construct the full path for -e checks, as $scfg->{path} is the mount point
+    my $image_file_path = "$scfg->{path}$mfs_internal_path";
 
-    if (-e $path) {
-        my $cmd = ['/usr/sbin/mfsbdev', 'unmap', $path];
-        run_command($cmd, errmsg => 'mfsbdev unmap failed');
-        unlink $path if -e $path;
-        unlink "$path.size" if -e "$path.size";
+    if (-e $image_file_path) {
+        my $cmd = ['/usr/sbin/mfsbdev', 'unmap', $mfs_internal_path];
+        run_command($cmd, errmsg => "mfsbdev unmap failed for $mfs_internal_path");
+        # Only unlink if unmap was successful or if we are forcing cleanup
+        unlink $image_file_path or log_debug "[free_image] Failed to unlink $image_file_path: $!" if -e $image_file_path;
+        unlink "$image_file_path.size" or log_debug "[free_image] Failed to unlink $image_file_path.size: $!" if -e "$image_file_path.size";
+    } else {
+        log_debug "[free_image] Image file $image_file_path does not exist for $volname. Skipping mfsbdev unmap and unlink.";
     }
 
     return undef;
