@@ -4,7 +4,9 @@ MooseFS on Proxmox.
 Adds MooseFS as a storage option in Proxmox VE.
 
 ## DISCLAIMER
-This is **HIGHLY EXPERIMENTAL!** 
+This is **HIGHLY EXPERIMENTAL!**
+
+**Do not use snapshots in MooseFS bdev mode - they will eat your data. They are not safe until this notice is removed, we're still improving them.**
 
 [@Zorlin](https://github.com/Zorlin) is running it in production on multiple clusters, but it should be considered unstable for now.
 
@@ -23,8 +25,6 @@ This is **HIGHLY EXPERIMENTAL!**
 ## Future features
 * Instant snapshots and rollbacks
 * Instant clones
-
-**Do not use snapshots in MooseFS bdev mode as they are actively being worked on and not ready yet**
 
 ## Usage
 Perform the following steps on your Proxmox host(s):
