@@ -3,6 +3,7 @@ package PVE::Storage::Custom::MooseFSPlugin;
 use strict;
 use warnings;
 
+use Data::Dumper qw(Dumper);
 use IO::File;
 use IO::Socket::UNIX;
 use File::Path;
@@ -379,7 +380,7 @@ sub alloc_image {
 }
 
 sub free_image {
-    my ($class, $storeid, $scfg, $volname, $isBase, $format) = @_;
+    my ($class, $storeid, $scfg, $volname, $isBase, $format_param) = @_;
 
     $scfg = PVE::Storage::config()->{ids}->{$storeid} unless ref($scfg) eq 'HASH';
 
@@ -388,35 +389,53 @@ sub free_image {
         return undef;
     }
 
-    my ($vtype, $parsed_name, $vmid) = $class->parse_volname($volname);
+    # $vol_format is the format determined by parse_volname, $format_param is what PVE passed to free_image directly.
+    # We typically rely on $vol_format if available for internal logic.
+    my ($vtype, $parsed_name, $vmid, undef, undef, undef, $vol_format) = $class->parse_volname($volname);
 
-    if (!$scfg->{mfsbdev} ||                               # mfsbdev globally off
-        (defined($parsed_name) && $parsed_name =~ m/efidisk/i) || # it IS an efidisk
-        $vtype ne 'images'                                 # not an image type for mfsbdev
-       ) {
-        my $reason = "";
-        $reason .= "mfsbdev_off. " if !$scfg->{mfsbdev};
-        $reason .= "is_efidisk ('$parsed_name'). " if (defined($parsed_name) && $parsed_name =~ m/efidisk/i);
-        $reason .= "not_image_type ($vtype). " if $vtype ne 'images';
-        log_debug "[free_image] Vol: $volname. Reason: $reason Using SUPER::free_image.";
-        return $class->SUPER::free_image(@_); # Pass original args
+    # Fallback to SUPER for non-mfsbdev storage or non-image types
+    if (!$scfg->{mfsbdev} || $vtype ne 'images') {
+        my $reason = !$scfg->{mfsbdev} ? "mfsbdev_disabled" : "vtype_not_images ('$vtype')";
+        log_debug "[free_image] Vol: $volname. Reason: $reason. Using SUPER::free_image.";
+        return $class->SUPER::free_image(@_); # Pass original @args
     }
 
-    # If we made it this far, mfsbdev is ON, it's an image, and it's NOT an efidisk.
-    my $mfs_internal_path = "/images/$vmid/$parsed_name"; # Path for mfsbdev command
-    # Construct the full path for -e checks, as $scfg->{path} is the mount point
-    my $image_file_path = "$scfg->{path}$mfs_internal_path";
+    # --- mfsbdev is ON and vtype IS 'images' ---
+    my $mfs_internal_path = "/images/$vmid/$parsed_name";
+    my $image_file_path   = "$scfg->{path}$mfs_internal_path";
+    my $size_file_path    = "$image_file_path.size"; # Path for .size file, only relevant if it was NBD-managed
 
-    if (-e $image_file_path) {
-        my $cmd = ['/usr/sbin/mfsbdev', 'unmap', $mfs_internal_path];
-        run_command($cmd, errmsg => "mfsbdev unmap failed for $mfs_internal_path");
-        # Only unlink if unmap was successful or if we are forcing cleanup
-        unlink $image_file_path or log_debug "[free_image] Failed to unlink $image_file_path: $!" if -e $image_file_path;
-        unlink "$image_file_path.size" or log_debug "[free_image] Failed to unlink $image_file_path.size: $!" if -e "$image_file_path.size";
+    # Determine if it's NBD-managed by checking the path type returned by filesystem_path.
+    # filesystem_path handles its own logic for when to check mfsbdev list (e.g. for 'raw' images).
+    my $resolved_path = $class->filesystem_path($scfg, $volname, undef); # $snapname is undef
+
+    log_debug "[free_image] Vol: $volname. Resolved path via filesystem_path: '" . (defined $resolved_path ? $resolved_path : "undef") . "'";
+
+    if (defined($resolved_path) && $resolved_path =~ m|^/dev/nbd\d+|) {
+        # IS NBD-managed (filesystem_path returned /dev/nbdX)
+        log_debug "[free_image] Path '$resolved_path' indicates NBD. Proceeding with mfsbdev unmap for $mfs_internal_path.";
+
+        if (-e $image_file_path) { # Should generally exist if it was mapped
+            my $cmd_unmap = ['/usr/sbin/mfsbdev', 'unmap', '-f', $mfs_internal_path];
+            run_command($cmd_unmap, errmsg => "mfsbdev unmap -f $mfs_internal_path failed");
+            
+            log_debug "[free_image] Unmap for $volname ($mfs_internal_path) presumably successful. Unlinking image and .size files.";
+            unlink $image_file_path or log_debug "[free_image] Failed to unlink $image_file_path post-unmap: $!" if -e $image_file_path;
+            unlink $size_file_path or log_debug "[free_image] Failed to unlink $size_file_path post-unmap: $!" if -e $size_file_path;
+        } else {
+            log_debug "[free_image] Vol: $volname resolved to NBD '$resolved_path', but image $image_file_path MISSING. Attempting unmap for $mfs_internal_path and .size cleanup only.";
+            my $cmd_unmap_missing = ['/usr/sbin/mfsbdev', 'unmap', '-f', $mfs_internal_path];
+            eval { run_command($cmd_unmap_missing, errmsg => "mfsbdev unmap -f $mfs_internal_path attempted (image file was missing)"); };
+            if ($@) { log_debug "[free_image] Unmap attempt for missing image $mfs_internal_path resulted in error (possibly expected): $@"; }
+            unlink $size_file_path or log_debug "[free_image] Failed to unlink $size_file_path (image file was missing): $!" if -e $size_file_path;
+        }
     } else {
-        log_debug "[free_image] Image file $image_file_path does not exist for $volname. Skipping mfsbdev unmap and unlink.";
+        # NOT NBD-managed (filesystem_path returned a direct file path, or was undef/empty).
+        # This covers small/EFI disks (handled by SUPER::alloc_image) and non-raw images.
+        # Delegate to SUPER::free_image to handle these plain files correctly.
+        log_debug "[free_image] Vol: $volname. Resolved path ('" . (defined $resolved_path ? $resolved_path : "undef") . "') is NOT NBD. Using SUPER::free_image for plain file deletion.";
+        return $class->SUPER::free_image(@_); # Pass original @args
     }
-
     return undef;
 }
 
@@ -585,29 +604,55 @@ sub path {
         return $class->filesystem_path($scfg, $volname, $snapname);
     }
 
-    # If mfsbdev is enabled, check if this is an efidisk.
-    # Efidisks should always use filesystem_path, not NBD.
-    my ($vtype_path, $name_path) = $class->parse_volname($volname);
-    if (defined($name_path) && $name_path =~ m/efidisk/i) {
-        log_debug "[path] Volume '$volname' (name: '$name_path') is an efidisk. Forcing filesystem_path.";
+    # Use the plugin's own volume_size_info to lookup the size of the volume.
+    # If it's <= 8MiB (8388608 bytes), it's treated as an EFI/small disk, use direct filesystem_path.
+    # Call $class->volume_size_info, not SUPER, to use the plugin's own implementation.
+    # Provide a short timeout, e.g., 5 seconds.
+    my $size_in_bytes;
+    eval {
+        # $storeid is passed to path, $scfg is also available.
+        my $info_returned = $class->volume_size_info($scfg, $storeid, $volname, 5); # 5s timeout
+
+        if (defined $info_returned) {
+            if (ref($info_returned) eq 'HASH' && defined $info_returned->{size}) {
+                $size_in_bytes = $info_returned->{size};
+                log_debug "[path] Vol: $volname. Size from volume_size_info (hashref): $size_in_bytes bytes.";
+            } elsif (!ref($info_returned) && $info_returned =~ /^\d+$/) {
+                $size_in_bytes = $info_returned; # Treat as direct size if scalar numeric
+                log_debug "[path] Vol: $volname. Size from volume_size_info (scalar numeric): $size_in_bytes bytes.";
+            } else {
+                # Log if $info_returned is defined but not a HASH with 'size' or a plain number
+                log_debug "[path] Vol: $volname. volume_size_info returned an unexpected defined type: " . Dumper($info_returned);
+            }
+        } else {
+            log_debug "[path] Vol: $volname. volume_size_info returned undef.";
+        }
+    };
+    if ($@) {
+        log_debug "[path] Vol: $volname. Error calling/processing volume_size_info: $@. Proceeding without size check for small disk.";
+        # Fallthrough to NBD logic if size check fails, rather than assuming it's small.
+    }
+
+    if (defined($size_in_bytes) && $size_in_bytes <= 8 * 1024 * 1024) { # Compare bytes to bytes
+        log_debug "[path] Vol: $volname ($size_in_bytes bytes) is small/EFI disk. Forcing filesystem_path.";
         return $class->filesystem_path($scfg, $volname, $snapname);
     }
 
-    log_debug "[path] bdev enabled for non-efidisk volume: attempting MooseFS NBD lookup for $volname";
+    log_debug "[path] Vol: $volname. Not a small/EFI disk based on size (or size check failed). Attempting MooseFS NBD lookup.";
 
     my $nbd = eval { $class->map_volume($storeid, $scfg, $volname, $snapname) };
     if ($@) {
-        log_debug "[path] map_volume error: $@";
+        log_debug "[path] map_volume error for $volname: $@";
         return $class->filesystem_path($scfg, $volname, $snapname);
     }
 
     if ($nbd && -b $nbd) {
-        my ($vtype, $name, $vmid) = $class->parse_volname($volname);
-        log_debug "[path] using NBD $nbd for $volname";
-        return ($nbd, $vmid, $vtype);
+        my ($vtype_nbd, $name_nbd, $vmid_nbd) = $class->parse_volname($volname);
+        log_debug "[path] using NBD $nbd for $volname (vmid $vmid_nbd, name $name_nbd, type $vtype_nbd)";
+        return ($nbd, $vmid_nbd, $vtype_nbd);
     }
 
-    log_debug "[path] no NBD found; defaulting back";
+    log_debug "[path] no NBD found for $volname; defaulting back to filesystem_path.";
     return $class->filesystem_path($scfg, $volname, $snapname);
 }
 
