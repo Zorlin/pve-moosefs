@@ -1,94 +1,124 @@
 # pve-moosefs
-MooseFS on Proxmox.
 
-Adds MooseFS as a storage option in Proxmox VE.
+**MooseFS integration for Proxmox VE**
 
-## DISCLAIMER
-This is **HIGHLY EXPERIMENTAL!**
+This plugin enables native support for MooseFS as a storage backend in Proxmox VE.
 
-**Do not use snapshots in MooseFS bdev mode - they will eat your data. They are not safe until this notice is removed, we're still improving them.**
+## ⚠️ Disclaimer
 
-[@Zorlin](https://github.com/Zorlin) is running it in production on multiple clusters, but it should be considered unstable for now.
+**This project is highly experimental.**
 
-# Preview
+> ⚠️ **Do NOT use snapshots in MooseFS block device (bdev) mode**. They are currently unsafe and may result in data loss. Snapshot support is still under active development and will remain experimental until this warning is removed.
+
+## 📷 Preview
+
 <img width="597" alt="image" src="https://github.com/user-attachments/assets/a3d13281-344e-4ec4-9ed8-7556582e5d5b" />
 
-# Features
+## ✨ Features
+
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Zorlin/pve-moosefs)
 
-* Natively use MooseFS storage on Proxmox.
+* Native MooseFS support in Proxmox VE
 * Support for MooseFS clusters with passwords and subfolders
-* Live migrate VMs between Proxmox hosts with the VMs living on MooseFS storage
-* Cleanly unmounts MooseFS when removed
+* Live VM migration across Proxmox hosts with MooseFS-backed storage
+* Clean unmounting when MooseFS storage is removed
 * MooseFS block device (`mfsbdev`) support for high performance
 
-## Future features
+## 🚧 Planned Features
+
 * Instant snapshots and rollbacks
-* Instant clones
+* Instant cloning
 
-## Usage
-Perform the following steps on your Proxmox host(s):
+## 🚀 Installation & Usage
 
-Easy:
-* Upgrade to Proxmox 8.4.1
-* Install the attached .deb file in Releases.
+### Prerequisites
 
-Harder:
-* Upgrade to Proxmox 8.4.1
-* Clone this Git repository and enter it with `cd`
-* Make the Debian package: `make`
-* Install the Debian package: `dpkg -i *.deb`
+* **Proxmox VE 8.4.1 or newer**
 
-### Graphical mounting
-Now mount the storage! You can use the Proxmox GUI for this.
+### Option 1: Easy Install
 
-* Go to Datacenter -> Storage
-* Click Add -> MooseFS and follow the wizard.
+1. Upgrade to Proxmox 8.4.1
+2. Download and install the `.deb` package from the [Releases](../../releases) page.
 
-### Command line mounting
-Now mount the storage via command line:
-`pvesm add moosefs moosefs-vm-storage --path /mnt/mfs`
+### Option 2: Manual Build
 
-In this example, we create a custom storage called "moosefs-vm-storage" using the moosefs plugin we just installed.
+1. Upgrade to Proxmox 8.4.1
+2. Clone this repository:
 
-You can apply the following optional settings:
-* --mfsmaster mfsmaster.my.hostname - Set the mfsmaster IP or hostname to help MooseFS find the metadata server(s).
-* --mfspassword mypasswordhere - If your MooseFS exports require a password to mount MooseFS, set this.
-* --mfssubfolder media - If you need to use a folder within MooseFS instead of pointing at the root of the filesystem, set this.
-* --mfsport 9421 - Coming soon 🚧
+   ```bash
+   git clone https://github.com/yourusername/pve-moosefs.git
+   cd pve-moosefs
+   ```
+3. Build the package:
 
-## Credits
-Huge thanks to the following contributors:
+   ```bash
+   make
+   ```
+4. Install it:
 
-* [@anwright](https://github.com/anwright) - Major fixes, snapshots, general cleanup
-* [@pkonopelko](https://github.com/pkonopelko) - General advice
+   ```bash
+   dpkg -i *.deb
+   ```
 
-Thanks to the following sources for code contributions:
+## 🖥️ Mounting MooseFS Storage
 
-* https://github.com/mityarzn/pve-storage-custom-mpnetapp - Initial plugin skeleton, packaging
-* https://forums.servethehome.com/index.php?threads/custom-storage-plugins-for-proxmox.12558/ - Also used building the skeleton
-* Proxmox GlusterFS and CephFS plugins - Also used in building the skeleton
+### Via GUI
 
-## Changelog
-v0.1.4 - Bug fixes
-* Lots of small fixes
-* Defensive fixes for various edge cases
-* Proper support for LXC
-* Live migration fixes
-* Unmapping fixes
-* Clone fixes
+1. Open the **Proxmox Web Interface**
+2. Navigate to **Datacenter → Storage**
+3. Click **Add → MooseFS** and complete the wizard
 
-v0.1.3 - Features
-* Full support for MooseFS block device (mfsbdev)
+### Via Command Line
 
-v0.1.2 - Features
-* Initial support for the MooseFS block device (mfsbdev)
+```bash
+pvesm add moosefs moosefs-vm-storage --path /mnt/mfs
+```
 
-v0.1.1 - Bug fixes
-* Add 'container' as an option in the Proxmox GUI to allow containers to be stored on MooseFS
-* Allow leading `/` on mfssubfolder
+This command creates a custom storage named `moosefs-vm-storage` using the MooseFS plugin.
 
-v0.1.0 - Initial release
-* Major features
-* Mount, unmount and setup shared MooseFS storage on your Proxmox cluster
-* Snapshots not working in this build
+#### Optional parameters:
+
+* `--mfsmaster <hostname>` — specify the MooseFS metadata server
+* `--mfspassword <password>` — use if your MooseFS export requires authentication
+* `--mfssubfolder <folder>` — mount a subfolder rather than the root of the MooseFS volume
+* `--mfsport <port>` — coming soon 🚧
+
+## 🙏 Credits
+
+**Contributors:**
+
+* [@anwright](https://github.com/anwright) — major fixes, snapshots, and cleanup
+* [@pkonopelko](https://github.com/pkonopelko) — general advice and support
+
+**Inspiration and references (for plugin skeleton and packaging):**
+
+* [mityarzn/pve-storage-custom-mpnetapp](https://github.com/mityarzn/pve-storage-custom-mpnetapp)
+* [ServeTheHome Forums](https://forums.servethehome.com/index.php?threads/custom-storage-plugins-for-proxmox.12558/)
+* Official Proxmox GlusterFS and CephFS storage plugins
+
+## 📝 Changelog
+
+### v0.1.4 – Bug Fixes
+
+* Multiple small and defensive fixes
+* Improved support for LXC
+* Enhancements for live migration, unmapping, and cloning
+
+### v0.1.3 – New Features
+
+* Full support for MooseFS block device (`mfsbdev`)
+
+### v0.1.2 – Initial Block Device Support
+
+* Basic `mfsbdev` support added
+
+### v0.1.1 – Enhancements
+
+* GUI support for container storage
+* Allowed leading `/` in `mfssubfolder` paths
+
+### v0.1.0 – Initial Release
+
+* Core features implemented
+* MooseFS mount/unmount and shared storage setup
+* **Snapshots not functional in this version**
