@@ -686,8 +686,16 @@ sub filesystem_path {
 
     my ($vtype, $name, $vmid, undef, undef, $isBase, $format) = $class->parse_volname($volname);
 
-    # Only do NBD logic for raw images
-    unless ($scfg->{mfsbdev} && $vtype eq 'images' && $format eq 'raw') {
+    # Handle snapshots for raw format in MooseFS
+    if (defined($snapname) && $vtype eq 'images' && $format eq 'raw') {
+        # MooseFS supports snapshots for raw files through mfsmakesnapshot
+        # Return the path to the snapshot file
+        my $mountpoint = $scfg->{path};
+        return "$mountpoint/images/$vmid/snaps/$snapname/$name";
+    }
+
+    # Only do NBD logic for raw images without snapshots
+    unless ($scfg->{mfsbdev} && $vtype eq 'images' && $format eq 'raw' && !defined($snapname)) {
         return $class->SUPER::filesystem_path($scfg, $volname, $snapname);
     }
 
@@ -784,7 +792,7 @@ sub volume_snapshot_delete {
 
     my $mountpoint = $scfg->{path};
 
-    my $cmd = ['/usr/bin/rm', '-rf', "$mountpoint/images/$vmid/snaps/$snap/$basename"];
+    my $cmd = ['/usr/bin/rm', '-rf', "$mountpoint/images/$vmid/snaps/$snap/$name"];
 
     run_command($cmd, errmsg => 'An error occurred while deleting the snapshot');
 
