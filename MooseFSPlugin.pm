@@ -15,26 +15,6 @@ use PVE::ProcFSTools;
 
 use base qw(PVE::Storage::Plugin);
 
-# Debugging traps, to eventually be removed
-use Carp;
-
-BEGIN {
-    $SIG{__DIE__} = sub {
-        my $msg = shift;
-        if ($msg =~ /Can't use string \(.*\) as a HASH ref/) {
-            my $ts = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
-            open my $fh, '>>', '/var/log/mfsplugindebug.log';
-            print $fh "$ts: Caught HASH ref crash: $msg\n";
-            print $fh "$ts: Stack trace:\n";
-            local $Carp::CarpLevel = 1;
-            print $fh Carp::longmess("STACK:\n");
-            close $fh;
-        }
-        die $msg;
-    };
-}
-# End debugging traps
-
 # Logging function, called only when needed explicitly
 sub log_debug {
     my ($msg) = @_;
@@ -679,10 +659,6 @@ sub filesystem_path {
     }
 
     my $ts = POSIX::strftime('%Y-%m-%d %H:%M:%S', localtime);
-    log_debug("[filesystem_path] TRACE triggered at $ts");
-    log_debug("[filesystem_path] scfg type: " . ref($scfg));
-    log_debug("[filesystem_path] volname: $volname");
-    log_debug("[filesystem_path] backtrace:\n" . longmess("[filesystem_path]"));
 
     my ($vtype, $name, $vmid, undef, undef, $isBase, $format) = $class->parse_volname($volname);
 
