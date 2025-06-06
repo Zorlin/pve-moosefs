@@ -98,6 +98,11 @@ This command creates a custom storage named `moosefs-vm-storage` using the Moose
 
 ## 📝 Changelog
 
+### v0.1.5 - Bug Fixes
+
+* Improvements to LXC snapshot support
+* Reduced debugging log noise
+
 ### v0.1.4 – Bug Fixes
 
 * Multiple small and defensive fixes
